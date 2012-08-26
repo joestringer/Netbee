@@ -674,7 +674,7 @@ stmt: COPPKTOUT
 
 stmt: SNDPKT
 {
-#ifndef FILTER_PROFILING
+#ifndef CODE_PROFILING
 	uint32_t port = ((SndPktNode *)tree)->getPort_number();
 	nvmHandlerState* HandlerState = APPLICATION.getCurrentPEHandler()->HandlerState;
 

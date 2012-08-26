@@ -44,8 +44,8 @@ FilterSubGraph::FilterSubGraph(EncapGraph &protograph, NodeList_t &targetNodes)
 :m_StartNode(0), m_Matrix(0)
 {
 	protograph.SortRevPostorder(targetNodes);
-	EncapGraph::SortedIterator i = protograph.FirstNodeSorted();
-	for (; i != protograph.LastNodeSorted(); i++)
+	for (EncapGraph::SortedIterator i = protograph.FirstNodeSorted();
+	     i != protograph.LastNodeSorted(); i++)
 	{
 		//cout << "Extracting node: " << (*i)->NodeInfo->ToString() << " from postorder list" << endl;
 		EncapGraph::GraphNode &newNode = AddNode(**i);
@@ -60,8 +60,8 @@ FilterSubGraph::FilterSubGraph(EncapGraph &protograph, NodeList_t &targetNodes)
 			m_TargetNodes.unique();
 		}
 		list<EncapGraph::GraphNode*> &predecessors = (*i)->GetPredecessors();
-		list<EncapGraph::GraphNode*>::iterator p = predecessors.begin();
-		for (; p != predecessors.end(); p++)
+		for (list<EncapGraph::GraphNode*>::iterator p = predecessors.begin();
+		     p != predecessors.end(); p++)
 		{
 			EncapGraph::GraphNode &newPredecessor = AddNode(**p);
 			//cout << "Adding edge: " << newPredecessor.NodeInfo->ToString() << " -> " << newNode.NodeInfo->ToString() << endl;
@@ -83,14 +83,14 @@ FilterSubGraph::FilterSubGraph(EncapGraph &protograph, NodeList_t &targetNodes)
 	if (m_Matrix == NULL)
 		throw ErrorInfo(ERR_FATAL_ERROR,  "MEMORY ALLOCATION FAILURE");
 
-	EncapGraph::NodeIterator k = m_Graph.FirstNode();
-	for (; k != m_Graph.LastNode(); k++)
+	for (EncapGraph::NodeIterator k = m_Graph.FirstNode();
+	     k != m_Graph.LastNode(); k++)
 	{
 		EncapGraph::GraphNode &node = **k;
 		m_Matrix->AddNode(node);
 		list<EncapGraph::GraphNode*> successors = node.GetSuccessors();
-		list<EncapGraph::GraphNode*>::iterator s = successors.begin();
-		for (; s != successors.end(); s++)
+		for (list<EncapGraph::GraphNode*>::iterator s = successors.begin();
+		     s != successors.end(); s++)
 			m_Matrix->AddEdge(node, **s);
 	}
 
@@ -103,8 +103,8 @@ FilterSubGraph::~FilterSubGraph()
 		delete(m_Matrix);
 
 	//destroy all the code-lists associated to protocol nodes
-	ProtoCodeMap_t::iterator i = m_ProtoCodeMap.begin();
-	for (; i != m_ProtoCodeMap.end(); i++)
+	for (ProtoCodeMap_t::iterator i = m_ProtoCodeMap.begin();
+	     i != m_ProtoCodeMap.end(); i++)
 		delete i->second;
 }
 
@@ -159,8 +159,7 @@ bool FilterSubGraph::RemoveUnsupportedNodes(void)
 	EncapGraph &subgraph = m_Graph;
 	bool result = false;
 
-	EncapGraph::NodeIterator n = subgraph.FirstNode();
-	for (; n != subgraph.LastNode(); n++)
+	for (EncapGraph::NodeIterator n = subgraph.FirstNode(); n != subgraph.LastNode(); n++)
 	{
 		if (!(*n)->NodeInfo->IsSupported && !IsTargetNode(*n))
 			DeleteNode(**n);
@@ -176,8 +175,8 @@ bool FilterSubGraph::RemoveUnsupportedNodes(void)
 			result = true;
 
 			list<EncapGraph::GraphNode*> &successors = targetNode.GetSuccessors();
-			list<EncapGraph::GraphNode*>::iterator i = successors.begin();
-			for (; i != successors.end(); i++)
+			for (list<EncapGraph::GraphNode*>::iterator i = successors.begin();
+			     i != successors.end(); i++)
 			{
 				EncapGraph::GraphEdge e(targetNode, (**i));
 				edges2delete.push_back(e);
@@ -185,8 +184,8 @@ bool FilterSubGraph::RemoveUnsupportedNodes(void)
 		}
 
 	}
-	list<EncapGraph::GraphEdge>::iterator e = edges2delete.begin();
-	for (; e != edges2delete.end(); e++)
+	for (list<EncapGraph::GraphEdge>::iterator e = edges2delete.begin();
+	     e != edges2delete.end(); e++)
 		DeleteEdge((*e).From, (*e).To);
 
 	RemoveUnconnectedNodes();
@@ -216,8 +215,8 @@ void FilterSubGraph::RemoveUnconnectedNodes(void)
 				change = true;
 			}
 		}
-		list<EncapGraph::GraphNode*>::iterator i = nodes2delete.begin();
-		for (; i != nodes2delete.end(); i++)
+		for (list<EncapGraph::GraphNode*>::iterator i = nodes2delete.begin();
+		     i != nodes2delete.end(); i++)
 			DeleteNode(**i);
 	}
 
@@ -228,9 +227,9 @@ bool FilterSubGraph::IsConnected(void)
 {
 	bool foundStart = false;
 	m_Graph.SortRevPostorder(m_TargetNodes);
-	EncapGraph::SortedIterator i = m_Graph.FirstNodeSorted();
 
-	for (; i != m_Graph.LastNodeSorted(); i++)
+	for (EncapGraph::SortedIterator i = m_Graph.FirstNodeSorted();
+	     i != m_Graph.LastNodeSorted(); i++)
 	{
 		if ((*i) == m_StartNode)
 			foundStart = true;

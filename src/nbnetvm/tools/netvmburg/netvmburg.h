@@ -6,7 +6,7 @@
 #include <map>
 #include <list>
 
-void yyerror (char *fmt, ...);
+void yyerror (const char *fmt, ...);
 int  yylex   (void);
 
 extern FILE *inputfd;

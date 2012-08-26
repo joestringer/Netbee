@@ -26,12 +26,12 @@ public:
 	CPcapPacketDumpFile();
 	virtual ~CPcapPacketDumpFile();
 
-	int OpenDumpFile(const char* FileName, int CreateIndexing= 0);
-	int CreateDumpFile(const char* FileName, int LinkLayerType, int CreateIndexing= 0);
+	int OpenDumpFile(const char* FileName, bool CreateIndexing= false);
+	int CreateDumpFile(const char* FileName, int LinkLayerType, bool CreateIndexing= false);
 	int CloseDumpFile();
 	int GetLinkLayerType(nbNetPDLLinkLayer_t &LinkLayerType);
 
-	int AppendPacket(const struct pcap_pkthdr* PktHeader, const unsigned char* PktData);
+	int AppendPacket(const struct pcap_pkthdr* PktHeader, const unsigned char* PktData, bool FlushData= false);
 	int GetPacket(unsigned long PacketNumber, struct pcap_pkthdr** PktHeader, const unsigned char** PktData);
 	int GetNextPacket(struct pcap_pkthdr** PktHeader, const unsigned char** PktData);
 	int RemovePacket(unsigned long PacketNumber);

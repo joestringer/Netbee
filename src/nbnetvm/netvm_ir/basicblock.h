@@ -609,10 +609,10 @@ namespace jit {
 		
 		// Scroll the list of instruction until we find the last phi
 		typename std::list<IR *>::iterator i, j;
-		for(i = getCode().begin(); i != getCode.end() && (*i)->isPhi(); ++i)
+		for(i = getCode().begin(); i != getCode().end() && (*i)->isPhi(); ++i)
 			;
 			
-		getCode.insert(i, n);
+		getCode().insert(i, n);
 	
 		return;
 	}

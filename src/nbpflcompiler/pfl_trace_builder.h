@@ -2,7 +2,7 @@
 #define PFL_TRACE_BUILDER_H
 
 #include "tracebuilder.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include "pflcfg.h"
 
 class PFLTraceBuilder: public jit::TraceBuilder<PFLCFG>

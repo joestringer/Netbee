@@ -37,8 +37,8 @@
 	to open, close and manage (read packets, write packets, etc.) packet capture dumps.
 
 	These classes are abstract and cannot be instantiated directly. The programmer can get an instance of these
-	classes using the nbAllocatePacketDumpFileXXX() functions, and it has to delete them through the appropriate
-	nbDeallocatePacketDumpFileXXX().
+	classes using the nbAllocatePacketDumpFilePcap() functions, and it has to delete them through the appropriate
+	nbDeallocatePacketDumpFilePcap().
 */
 
 
@@ -82,7 +82,7 @@ public:
 		\return nbSUCCESS if everything is fine, nbFAILURE otherwise.
 		In case of error, the error message can be retrieved by the GetLastError() method.
 	*/
-	virtual int OpenDumpFile(const char* FileName, int CreateIndexing= 0)= 0;
+	virtual int OpenDumpFile(const char* FileName, bool CreateIndexing= false)= 0;
 
 	/*!
 		\brief Create a new capture file.
@@ -104,7 +104,7 @@ public:
 		\return nbSUCCESS if everything is fine, nbFAILURE otherwise.
 		In case of error, the error message can be retrieved by the GetLastError() method.
 	*/
-	virtual int CreateDumpFile(const char* FileName, int LinkLayerType, int CreateIndexing= 0)= 0;
+	virtual int CreateDumpFile(const char* FileName, int LinkLayerType, bool CreateIndexing= false)= 0;
 
 	/*!
 		\brief Close a dump file, either created through the CreateDumpFile(), or opened through the OpenDumpFile().
@@ -135,10 +135,16 @@ public:
 
 		\param PktData: buffer containing the packet dump, in hex.
 
+		\param FlushData: 'true' if we want to flush data to disk immediately, without relying on the
+		buffering provided by the operating system. By default, this parameter is turned 'false',
+		which guarantees better performance.
+		In this case you may experience some delays in writing data to disk, as the operating system
+		can wait till some tens of KBytes are buffered before dumping them on disk.
+
 		\return nbSUCCESS if everything is fine, nbFAILURE otherwise.
 		In case of error, the error message can be retrieved by the GetLastError() method.
 	*/
-	virtual int AppendPacket(const struct pcap_pkthdr* PktHeader, const unsigned char* PktData)= 0;
+	virtual int AppendPacket(const struct pcap_pkthdr* PktHeader, const unsigned char* PktData, bool FlushData= false)= 0;
 
 	/*!
 		\brief Return the packet selected through the 'PacketNumber' parameters.
@@ -183,7 +189,9 @@ public:
 
 		\param PacketNumber: ordinal number of the packet that has to be removed.
 
-		\return nbSUCCESS if everything is fine, nbFAILURE otherwise.
+		\return nbSUCCESS if everything is fine, nbWARNING if no more packets are currenty available in
+		the current file (i.e., no packet has been returned, but this does not represent an error as we 
+		reached the end-of-file), nbFAILURE otherwise.
 		In case of error, the error message can be retrieved by the GetLastError() method.
 	*/
 	virtual int RemovePacket(unsigned long PacketNumber)= 0;

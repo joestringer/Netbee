@@ -21,6 +21,7 @@
 #include <iostream>
 #include <algorithm>
 #include <iterator>
+#include <map>
 /*!
   \brief This template class implements a generic directed graph, which nodes are objects of type T
 
@@ -61,13 +62,14 @@ class DiGraph
 			friend class NodeIterator;
 			friend class SortedIterator;
 			private:
-			std::list<GraphNode*>	Predecessors;	//!<List of predecessor nodes
-			std::list<GraphNode*>	Successors;		//!<List of successor nodes
-	//		bool				Valid;			//!<if false the node has been removed
+				std::list<GraphNode*>	Predecessors;	//!<List of predecessor nodes
+				std::list<GraphNode*>	Successors;	//!<List of successor nodes
+				//bool			Valid;		//!<if false the node has been removed
 			public:
-			uint32_t				Id;				//!<Id of the node
-			bool				Visited;		//!<Flag used by the Depth First Search methods
-			T					NodeInfo;		//!<Object of class T wrapped by the graph node
+				uint32_t		Id;		//!<Id of the node
+				bool			Visited;	//!<Flag used by the Depth First Search methods and FindAllPaths mathod
+				T			NodeInfo;	//!<Object of class T wrapped by the graph node
+				bool			OnPath;		//!<Flag used by the FindAllPaths method //[icerrato]
 
 			/*!
 			  \brief Constructor
@@ -159,15 +161,19 @@ class DiGraph
 			 * \brief compare function
 			 * \param x reference to first edge
 			 * \param y reference to second edge
-			 * \return true if x comes before y ???
+			 * \return true if x comes before y ???  
 			 */
 			bool operator()(const GraphEdge &x, const GraphEdge &y)
-			{
+			{				
 				if (x.From.Id >= y.From.Id)
 					return false;
 				if (x.To.Id >= y.To.Id)
 					return false;
 				return true;
+				
+				/*if((x.From.Id==y.From.Id)&&(x.To.Id==y.To.Id))
+					return true;
+				return false;*/
 			}
 		};
 
@@ -526,7 +532,7 @@ class DiGraph
 			/*!
 			 * \brief copy constructor
 			 */
-			*SortedIterator(const SortedIterator &i)
+			SortedIterator(const SortedIterator &i)
 				:_dg(i._dg), _i(i._i) {}
 
 			// To create the "end sentinel" NodeIterator:
@@ -572,15 +578,94 @@ class DiGraph
 			}
 
 		};
+		
+		/*!
+
+		 * \brief This class implements an Iterator on graph nodes to iterate in a sorted way
+		 *
+		 * You should first call a function like Sort<something> to sort the digraph.
+		 * You can get such an iterator by calling FirstNodeSorted() or LastNodeSorted().
+		 * Then you can use it to iterate on a digraph with an order.
+		 */
+
+		class OnPathIterator //[icerrato]
+		{
+			DiGraph<T>& _dg;
+			uint32_t		_i;
+			public:
+				typedef typename DiGraph<T>::GraphNode* value_type;
+				typedef ptrdiff_t difference_type;
+				typedef typename DiGraph<T>::GraphNode** pointer;
+				typedef typename DiGraph<T>::GraphNode*& reference;
+				typedef std::forward_iterator_tag iterator_category;
+
+			/*!
+			 * \brief constructor
+			 */
+			OnPathIterator(DiGraph<T> &graph)
+				:_dg(graph), _i(0) {}
+
+			/*!
+			 * \brief copy constructor
+			 */
+			OnPathIterator(const OnPathIterator &i)
+				:_dg(i._dg), _i(i._i) {}
+
+			// To create the "end sentinel" NodeIterator:
+			OnPathIterator(DiGraph<T>& graph, bool)
+				:_dg(graph), _i(_dg.m_PathNodeList.size()) {}
+
+
+			GraphNode*& operator*() const
+			{
+				return _dg.m_PathNodeList[_i];
+			}
+
+			OnPathIterator& operator++()
+			{ // Prefix
+				assert(_i < _dg.m_PathNodeList.size() && "Iterator moved out of range");
+				_i++;
+				return *this;
+			}
+
+			OnPathIterator& operator++(int)
+			{ // Postfix
+				assert(_i < _dg.m_PathNodeList.size() && "Iterator moved out of range");
+				_i++;
+				return *this;
+			}
+
+			OnPathIterator& operator+=(uint32_t amount)
+			{
+				assert((_i + amount) < _dg.m_PathNodeList.size() && "Iterator moved out of range");
+				_i += amount;
+				return *this;
+			}
+
+			// To see if you're at the end:
+			bool operator==(const OnPathIterator& rv) const
+			{
+				return _i == rv._i;
+			}
+
+			bool operator!=(const OnPathIterator& rv) const
+			{
+				return _i != rv._i;
+			}
+
+		};
 
 
 	protected:
-		uint32_t				m_NodeCount;	//!<Number of nodes in the graph
-		std::vector<GraphNode*>	m_NodeList;		//!<List of all the nodes in the graph
-		std::vector<GraphNode*>	m_SortedNodes;  //!<List of the nodes in the graph sorted
-		std::set<GraphEdge, EdgeComp>		m_BackEdges; //!<Set of the edge
-		bool				m_Sorted; //!< true if this graph is sorted
-		//SubGraph			*m_SubGraph;
+		uint32_t				m_NodeCount;		//!<Number of nodes in the graph
+		std::vector<GraphNode*>			m_NodeList;		//!<List of all the nodes in the graph
+		std::vector<GraphNode*>			m_SortedNodes;  	//!<List of the nodes in the graph sorted
+		std::set<GraphEdge, EdgeComp>		m_BackEdges; 		//!<Set of the edge
+		bool					m_Sorted; 		//!< true if this graph is sorted
+		std::vector<GraphNode*>			m_PathNodeList;		//!<List of the nodes in a specific path //[icerrato]
+		std::multimap<GraphNode*,GraphEdge> 	m_Node_Edges; 		//!<Map of Node - Edges entering in the Node //[icerrato]
+		std::set< std::pair<GraphNode*, GraphNode*> >	m_Visited;	//!<Set of Edges visited //[icerrato]
+		//SubGraph				*m_SubGraph;
 
 		void ForwardDFSPre(GraphNode &node, GraphNode *comingFrom, IGraphVisitor &visitor);
 		void ForwardDFSPost(GraphNode &node, GraphNode *comingFrom, IGraphVisitor &visitor);
@@ -591,7 +676,8 @@ class DiGraph
 		void DFSPreorder(GraphNode &node);
 		void DFSPostorder(GraphNode &node);
 		void DFSReversePreorder(GraphNode &node);
-		void DFSReversePostorder(GraphNode &node);
+		bool DFSReversePostorder(GraphNode *node, GraphNode *root_for_loops=NULL);
+		bool FindAllPaths(GraphNode *from, GraphNode *to, uint32_t depth); //[icerrato]
 
 
 	public:
@@ -619,6 +705,23 @@ class DiGraph
 			{
 				if (m_NodeList[i] != NULL)
 					m_NodeList[i]->Visited = false;
+			}
+		}
+		
+		/*!
+		  \brief	this function resets the OnPath flag for all the nodes in the graph
+
+
+		  \return nothing
+		  */
+		void ResetOnPath(void) //[icerrato]
+		{
+			uint32_t size = m_NodeList.size();
+
+			for (uint32_t i = 0; i < size; i++)
+			{
+				if (m_NodeList[i] != NULL)
+					m_NodeList[i]->OnPath = false;
 			}
 		}
 
@@ -678,16 +781,17 @@ class DiGraph
 		{
 			list_iterator_t p = node.Predecessors.begin();
 			for (; p != node.Predecessors.end(); p++)
+				//DeleteEdge(**p, node);
 				(*p)->Successors.remove(&node);
 			list_iterator_t s = node.Successors.begin();
 			for (; s != node.Successors.end(); s++)
+				//DeleteEdge(node, **s);
 				(*s)->Predecessors.remove(&node);
-			if(node.Id < m_NodeList.size())
-			{
-				GraphNode *to_delete = m_NodeList[node.Id];
-				m_NodeList[node.Id] = NULL;
-				delete to_delete;
-			}
+			assert(node.Id < m_NodeList.size() &&	 "wrong node id");
+
+			GraphNode *to_delete = m_NodeList[node.Id];
+			m_NodeList[node.Id] = NULL;
+			delete to_delete;
 		}
 
 		/*!
@@ -897,14 +1001,16 @@ class DiGraph
 		/*!
 		 * \brief sort a graph in reverse post-order to get a SortedIterator
 		 * \param startnode the node to start the visit from
+                 * \return true if a loop containing startnode was found
 		 */
-		void SortRevPostorder(GraphNode &startnode)
+		bool SortRevPostorder(GraphNode &startnode)
 		{
 			ResetVisited();
 			m_SortedNodes.clear();
 			m_BackEdges.clear();
-			DFSReversePostorder(startnode);
+			const bool to_ret = DFSReversePostorder(&startnode, &startnode);
 			m_Sorted = true;
+                        return to_ret;
 		}
 
 
@@ -919,12 +1025,14 @@ class DiGraph
 			m_BackEdges.clear();
 			typename std::list<GraphNode*>::iterator i = startnodes.begin();
 			for (; i != startnodes.end(); i++)
-				DFSReversePostorder(*(*i));
+				DFSReversePostorder(*i);
 			m_Sorted = true;
 		}
 
 		void SortRevPostorder_alternate(GraphNode &startnode)
 		{
+
+
 			ResetVisited();
 			m_SortedNodes.clear();
 			m_BackEdges.clear();
@@ -941,8 +1049,56 @@ class DiGraph
 				return false;
 			return true;
 		}
+		
+		bool ExistPaths(GraphNode &fromNode, GraphNode &toNode) //[icerrato]
+		{
+			ResetVisited();
+			ResetOnPath();
+			m_PathNodeList.clear();   //clears the list of nodes 
+			m_Node_Edges.clear();	  //clears the maps of node-edges		
+			m_Visited.clear(); //clears the set of visited edges
+			
+			bool r_value = FindAllPaths(&fromNode, &toNode,0);
+			
+			bool morePaths = ((toNode.NodeInfo->Name!="startproto")&&(fromNode.NodeInfo!=toNode.NodeInfo))? true : false;
+			
+			if(r_value && morePaths)
+			{
+				//in case of exists at least a path betwee fromNode and fromNode, and alse the paths between to node and toNode are required, FindAllPaths is invoked again.
+				//this is needed if toNode is not the start proto and fromNode is defferent from toNode. In fact in thise case, if a the method is not called twice, some paths are lost. In fact, when toNode has been reached, the methods ends. but this node can have a self loop, or there could be loops involving it.
+				//This is not the case of the start proto and where the two nodes are the same. In fact, in this last case, only the self loop and the loops involving the protocol are considered.
+				m_Visited.clear();
+				FindAllPaths(&toNode,&toNode,0);
+			}
+			
+			return r_value;			
+		}
+		
+		/*!
+
+		 * \brief get an iterator to the start of the path nodes list
+		 * \return an iterator to the start of the path nodes list
+		 */
+		OnPathIterator FirstNodeOnPath() //[icerrato]
+		{
+			return OnPathIterator(*this);
+		}
+		
+		/*!
+		 * \brief get an iterator to the end of the path nodes list
+		 * \return an iterator to the end of the path nodes list
+
+		 */
+		OnPathIterator LastNodeOnPath() //[icerrato]
+		{
+			return OnPathIterator(*this, true);
+		}
+		
+		std::multimap<GraphNode*,GraphEdge> GetMapNodeEdges(){return m_Node_Edges;} //[icerrato]
 
 		std::set<GraphEdge, EdgeComp> get_back_edges() { return m_BackEdges;};
+		
+		
 };
 
 
@@ -1166,32 +1322,82 @@ void DiGraph<T>::DFSReversePreorder(GraphNode &node)
 	}
 }
 
-
-	template<class T>
-void DiGraph<T>::DFSReversePostorder(GraphNode &node)
+// returns true if a loop that includes root_for_loops (optional parameter) was found
+template<class T>
+bool DiGraph<T>::DFSReversePostorder(GraphNode *node, GraphNode *root_for_loops)
 {
 	//std::cout << "Entering node " << node.NodeInfo << std::endl;
-	if (node.Visited)
-		return;
+	if (node->Visited)
+          return (root_for_loops != NULL && node == root_for_loops);
 
-	node.Visited = true;
+	node->Visited = true;
 
-	list_iterator_t p = node.Predecessors.begin();
+	list_iterator_t p = node->Predecessors.begin();
 
-	for(; p != node.Predecessors.end(); p++)
+        bool loop_found = false;
+	for(; p != node->Predecessors.end(); p++)
 	{
 		GraphNode &predecessor(**p);
 		if (predecessor.Visited)
 		{
-			GraphEdge edge(predecessor, node);
+			GraphEdge edge(predecessor, *node);
 			//std::cout << "Back edge: " << predecessor.NodeInfo << " -> " << node.NodeInfo << std::endl;
 			m_BackEdges.insert(edge);
 		}
 
-		DFSReversePostorder(predecessor);
+		loop_found = DFSReversePostorder(&predecessor, root_for_loops) || loop_found;
 	}
 
 	//std::cout << "Visiting node " << node.NodeInfo << std::endl;
-	m_SortedNodes.push_back(&node);
+	m_SortedNodes.push_back(node);
+        return loop_found;
 }
 
+//returns true if a path that starts in "from" and arrives in "to" exists
+template<class T>
+bool DiGraph<T>::FindAllPaths(GraphNode *from, GraphNode *to, uint32_t depth) //[icerrato]
+{	
+	
+	if((from == to)&&(depth != 0))
+		return true;
+	
+	if(from->Visited)
+		return from->OnPath;
+	
+	for(list_iterator_t p = from->Predecessors.begin(); p != from->Predecessors.end(); p++)
+	{
+		GraphNode &predecessor(**p);
+		
+		pair<GraphNode*,GraphNode*> pn(from,&predecessor);
+
+		if( m_Visited.find(pn)==m_Visited.end())
+		{
+			m_Visited.insert(pn);
+			
+			if((*p)->OnPath ||FindAllPaths(&predecessor,to,depth+1))
+			{	
+				GraphEdge edge(predecessor, *from);	
+				//we insert the edge in the multimap
+				m_Node_Edges.insert(pair<GraphNode*,GraphEdge>(from,edge));
+			
+				from->OnPath = true;
+			}
+		}
+	
+	}
+
+	if(from->OnPath){
+		typename std::vector<GraphNode*>::iterator it = m_PathNodeList.begin();
+		for(; it != m_PathNodeList.end(); it++)
+		{
+			if(*it == from)
+				break;
+		}
+		if(it == m_PathNodeList.end())			
+			m_PathNodeList.push_back(from);
+	}
+		
+	from->Visited = true;
+
+	return from->OnPath;
+}

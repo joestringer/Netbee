@@ -39,8 +39,10 @@ DLinkedList * New_DoubLinkedList(uint32_t sorted)
 	list->NumElems = 0;
 	list->Sorted = sorted;
 
-	VERB2(JIT_LISTS_DEBUG_LVL, "New Doubly Linked Lst 0x%p, Sorted: %u\n",list, list->Sorted);
-	
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "New Doubly Linked Lst 0x%p, Sorted: %u",list, list->Sorted);
+#endif
+
 	return list;
 }
 
@@ -64,7 +66,9 @@ void Free_DoubLinkedList(DLinkedList * list, void (*freeItem)(void*))
 		currItem = nextItem;
 	}
 	
-	VERB2(JIT_LISTS_DEBUG_LVL, "Freed Doubly Linked Lst 0x%p, Num Elements: %u\n",list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Freed Doubly Linked Lst 0x%p, Num Elements: %u",list, list->NumElems);
+#endif
 
 	free(list);
 }
@@ -78,7 +82,7 @@ uint32_t DLLst_Is_Empty(DLinkedList * list)
 		return TRUE;
 
 	else if (list->Head == NULL || list->NumElems == 0 || list->Tail == NULL){
-		NETVM_ASSERT(list->Head == NULL && list->Tail == NULL && list->NumElems == 0, __FUNCTION__ " the list may be empty, but has wrong member values!");
+		NETVM_ASSERT(list->Head == NULL && list->Tail == NULL && list->NumElems == 0, __FUNCTION__ "The list may be empty, but has wrong member values!");
 		return TRUE;
 	}
 
@@ -116,7 +120,9 @@ DLLstElement *DLLst_Add_Tail(DLinkedList * list)
 
 	list->NumElems++;
 
-	VERB2(JIT_LISTS_DEBUG_LVL, "Added an element to tail of Doubly Linked Lst 0x%p, Num Elements: %u\n",list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Added an element to tail of Doubly Linked Lst 0x%p, Num Elements: %u",list, list->NumElems);
+#endif
 
 	return listItem;
 }
@@ -137,12 +143,14 @@ DLLstElement * DLLst_Add_Front(DLinkedList * list)
 	listItem->Item = NULL;
 	listItem->Prev = NULL;
 
-	if (list->Head == NULL && list->Tail == NULL){
+	if (list->Head == NULL && list->Tail == NULL)
+	{
 		list->Head = listItem;
 		list->Tail = listItem;
 		listItem->Next =  NULL;
 	}
-	else{
+	else
+	{
 		listItem->Next =  list->Head;
 		list->Head->Prev = listItem;
 		list->Head = listItem;
@@ -150,10 +158,11 @@ DLLstElement * DLLst_Add_Front(DLinkedList * list)
 
 	list->NumElems++;
 
-	VERB2(JIT_LISTS_DEBUG_LVL, "Added an element to front of Doubly Linked Lst 0x%p, Num Elements: %u\n",list, list->NumElems);
-	
-	return listItem;
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Added an element to front of Doubly Linked Lst 0x%p, Num Elements: %u",list, list->NumElems);
+#endif
 
+	return listItem;
 }
 
 
@@ -185,7 +194,9 @@ DLLstElement * DLLst_Ins_After(DLinkedList * list, DLLstElement * listItem)
 
 	list->NumElems++;
 
-	VERB3(JIT_LISTS_DEBUG_LVL, "Added an element after element 0x%p of Doubly Linked Lst 0x%p, Num Elements: %u\n", listItem, list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Added an element after element 0x%p of Doubly Linked Lst 0x%p, Num Elements: %u", listItem, list, list->NumElems);
+#endif
 
 	return newItem;
 
@@ -220,11 +231,13 @@ DLLstElement * DLLst_Ins_Before(DLinkedList * list, DLLstElement * listItem)
 
 	list->NumElems++;
 
-	VERB3(JIT_LISTS_DEBUG_LVL, "Added an element before element 0x%p of Doubly Linked Lst 0x%p, Num Elements: %u\n", listItem, list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Added an element before element 0x%p of Doubly Linked Lst 0x%p, Num Elements: %u", listItem, list, list->NumElems);
+#endif
 
 	return newItem;
-
 }
+
 
 DLLstElement * DLLst_Del_Item(DLinkedList * list, DLLstElement * listItem, void (*freeItem)(void*))
 {
@@ -264,10 +277,12 @@ DLLstElement * DLLst_Del_Item(DLinkedList * list, DLLstElement * listItem, void 
 	list->NumElems--;
 	
 	NETVM_ASSERT(((int32_t)list->NumElems) >= 0, __FUNCTION__ " number of elements in the list is < 0!");
-	VERB3(JIT_LISTS_DEBUG_LVL, "Deleted element 0x%p from doubly linked list %p, Num elements now: %u, Head: 0x%p, Tail: 0x%p\n", listItem, list, list->NumElems);
+
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Deleted element 0x%p from doubly linked list %p, Num elements now: %u, Head: 0x%p, Tail: 0x%p", listItem, list, list->NumElems);
+#endif
 
 	return prevItem;
-
 }
 
 
@@ -359,8 +374,10 @@ DLLstElement * DLLst_Find_Item_Sorted(DLinkedList * list, void *item, int32_t (*
 
 	if (list == NULL || Cmp_Item == NULL || item == NULL)
 		return NULL;
-	
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
 	NETVM_ASSERT(list->Sorted, __FUNCTION__ " cannot be used with a non-sorted list");
 
@@ -391,7 +408,9 @@ DLLstElement * DLLst_Find_Item(DLinkedList * list, void *item, int32_t (*Cmp_Ite
 	if (list == NULL || Cmp_Item == NULL || item == NULL)
 		return NULL;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
 	if (list->Sorted)
 		return DLLst_Find_Item_Sorted(list, item, Cmp_Item);
@@ -421,7 +440,9 @@ DLLstElement * DLLst_Insert_Item_Sorted(DLinkedList * list, void *item, uint32_t
 	if (list == NULL || Cmp_Item == NULL || item == NULL)
 		return NULL;
 	
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
 	NETVM_ASSERT(list->Sorted, __FUNCTION__ " cannot be used with a non-sorted list");
 
@@ -471,12 +492,17 @@ DLLstElement * DLLst_Insert_Item_Sorted(DLinkedList * list, void *item, uint32_t
 
 int32_t DLLst_Iterate_Forward_1Arg(DLinkedList * list, int32_t (*funct)(void *, void*), void *arg)
 {
-	DLLstElement * listItem, *next;
+DLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
@@ -503,16 +529,22 @@ int32_t DLLst_Iterate_Forward_1Arg(DLinkedList * list, int32_t (*funct)(void *, 
 
 int32_t DLLst_Iterate_Reverse_1Arg(DLinkedList * list, int32_t (*funct)(void*, void*), void *arg)
 {
-	DLLstElement * listItem, *prev;
+DLLstElement * listItem, *prev;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
@@ -538,16 +570,20 @@ int32_t DLLst_Iterate_Forward_2Args(DLinkedList * list, int32_t (*funct)(void *,
 {
 	DLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
-
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
@@ -555,9 +591,11 @@ int32_t DLLst_Iterate_Forward_2Args(DLinkedList * list, int32_t (*funct)(void *,
 
 	listItem = list->Head;
 
-	while (listItem != NULL){
+	while (listItem != NULL)
+	{
 		next = listItem->Next;
-		if (funct(listItem->Item, arg1, arg2) < 0){
+		if (funct(listItem->Item, arg1, arg2) < 0)
+		{
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: applying function on items\n");
 			return nvmJitFAILURE;
 		}
@@ -570,25 +608,33 @@ int32_t DLLst_Iterate_Forward_2Args(DLinkedList * list, int32_t (*funct)(void *,
 
 int32_t DLLst_Iterate_Reverse_2Args(DLinkedList * list, int32_t (*funct)(void *, void*, void*), void *arg1, void *arg2)
 {
-	DLLstElement * listItem, *prev;
+DLLstElement * listItem, *prev;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
 
 	listItem = list->Tail;
 
-	while (listItem != NULL){
+	while (listItem != NULL)
+	{
 		prev = listItem->Prev;
-		if (funct(listItem->Item, arg1, arg2) < 0){
+		if (funct(listItem->Item, arg1, arg2) < 0)
+		{
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: applying function on items\n");
 			return nvmJitFAILURE;
 		}
@@ -598,25 +644,33 @@ int32_t DLLst_Iterate_Reverse_2Args(DLinkedList * list, int32_t (*funct)(void *,
 	return nvmJitSUCCESS;
 }
 
+
 int32_t DLLst_Iterate_Forward_3Args(DLinkedList * list, int32_t (*funct)(void *, void*, void*, void*), void *arg1, void *arg2, void *arg3)
 {
-	DLLstElement * listItem, *next;
+DLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
 
 	listItem = list->Head;
 
-	while (listItem != NULL){
+	while (listItem != NULL)
+	{
 		next = listItem->Next;
 		if (funct(listItem->Item, arg1, arg2, arg3) < 0){
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: applying function on items\n");
@@ -631,25 +685,33 @@ int32_t DLLst_Iterate_Forward_3Args(DLinkedList * list, int32_t (*funct)(void *,
 
 int32_t DLLst_Iterate_Reverse_3Args(DLinkedList * list, int32_t (*funct)(void *, void*, void*, void*), void *arg1, void *arg2, void *arg3)
 {
-	DLLstElement * listItem, *prev;
+DLLstElement * listItem, *prev;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
 
 	listItem = list->Tail;
 
-	while (listItem != NULL){
+	while (listItem != NULL)
+	{
 		prev = listItem->Prev;
-		if (funct(listItem->Item, arg1, arg2, arg3) < 0){
+		if (funct(listItem->Item, arg1, arg2, arg3) < 0)
+		{
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: applying function on items\n");
 			return nvmJitFAILURE;
 		}
@@ -663,25 +725,33 @@ int32_t DLLst_Iterate_Reverse_3Args(DLinkedList * list, int32_t (*funct)(void *,
 
 int32_t DLLst_Iterate_Forward_4Args(DLinkedList * list, int32_t (*funct)(void *, void*, void*, void*, void*), void *arg1, void *arg2, void *arg3, void* arg4)
 {
-	DLLstElement * listItem, *next;
+DLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
 
 	listItem = list->Head;
 
-	while (listItem != NULL){
+	while (listItem != NULL)
+	{
 		next = listItem->Next;
-		if (funct(listItem->Item, arg1, arg2, arg3, arg4) < 0){
+		if (funct(listItem->Item, arg1, arg2, arg3, arg4) < 0)
+		{
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: applying function on items\n");
 			return nvmJitFAILURE;
 		}
@@ -694,16 +764,22 @@ int32_t DLLst_Iterate_Forward_4Args(DLinkedList * list, int32_t (*funct)(void *,
 
 int32_t DLLst_Iterate_Reverse_4Args(DLinkedList * list, int32_t (*funct)(void *, void*, void*, void*, void*), void *arg1, void *arg2, void *arg3, void* arg4)
 {
-	DLLstElement * listItem, *prev;
+DLLstElement * listItem, *prev;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
@@ -725,14 +801,17 @@ int32_t DLLst_Iterate_Reverse_4Args(DLinkedList * list, int32_t (*funct)(void *,
 
 void DLLst_Swap_Items(DLLstElement * item1, DLLstElement * item2, void (*updtItem)(DLLstElement *))
 {
-	void *temp;
+void *temp;
 	
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
 	temp = item1->Item;
 	item1->Item = item2->Item;
 	item2->Item = temp;
-	if (updtItem != NULL){
+	if (updtItem != NULL)
+	{
 		updtItem(item1);
 		updtItem(item2);
 	}
@@ -743,26 +822,34 @@ void DLLst_Swap_Items(DLLstElement * item1, DLLstElement * item2, void (*updtIte
 
 int32_t DLLst_Sort_List(DLinkedList * list, int32_t (*CmpFunct)(void*, void*), void (*updtItem)(DLLstElement *))
 {
-	DLLstElement * currItem, *nextItem;
+DLLstElement * currItem, *nextItem;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (updtItem == NULL){
+	if (updtItem == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
 	
 	currItem = list->Head;
 
-	while (currItem != NULL){
+	while (currItem != NULL)
+	{
 		nextItem = currItem->Next;
 
-		while (nextItem != NULL){
+		while (nextItem != NULL)
+		{
 			if (CmpFunct(currItem->Item, nextItem->Item) > 0)
 				DLLst_Swap_Items(currItem, nextItem, updtItem);
 			nextItem = nextItem->Next;

@@ -244,6 +244,8 @@ static int32_t nvmStringMatchCoproRun (nvmCoprocessorState *c, uint32_t operatio
 	r1 = &((c -> registers)[1]);
 	r2 = &((c -> registers)[2]);
 	r3 = &((c -> registers)[3]);
+        // suppress gcc warning
+        (void) r3;
 	smcdata = c -> data;
 	smdebug ("String-matching coprocessor invocation starting: op=%u/R0=%u/R1=%u/R2=%u/R3=%u\n", operation, *r0, *r1, *r2, *r3);
 

@@ -287,7 +287,6 @@ int DumpIndex;
 void NetPDLLongToHexDump(int Value, int ResultSize, unsigned char *HexDumpPtr)
 {
 int i;
-int SizeOfInt;
 unsigned char *ValueUChar;
 
 	if (ResultSize > sizeof(int))
@@ -297,8 +296,6 @@ unsigned char *ValueUChar;
 		errorsnprintf(__FILE__, __FUNCTION__, __LINE__, TmpBuf, sizeof(TmpBuf), "Internal error: an integer cannot be larger than 4 bytes.");
 		return;
 	}
-
-	SizeOfInt= sizeof(int);
 
 #ifdef HOST_IS_LITTLE_ENDIAN
 
@@ -314,7 +311,7 @@ unsigned char *ValueUChar;
 	ValueUChar= (unsigned char *) &Value;
 
 	for (i=0; i < ResultSize; i++)
-		HexDumpPtr[i]= ValueUChar[SizeOfInt - ResultSize + i];
+		HexDumpPtr[i]= ValueUChar[sizeof(int) - ResultSize + i];
 
 #endif
 

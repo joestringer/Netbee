@@ -416,7 +416,9 @@ nvmByteCode *nvmAssembleNetILFromBuffer(char *asmBuffer, char *ErrBuf)
 	// Save the segments
 	while (v != NULL)
 	{
-		VERB3(BYTECODE_VERB, "Saving section %s, len=%d, flags=%d\n", v->label, v->cur_ip, v->flags);
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_BYTECODE_LOAD_SAVE, "Saving section %s, len=%d, flags=%d\n", v->label, v->cur_ip, v->flags);
+#endif
 
 		AddSection(NetVMBinary, v->label, v->flags, v->istream, v->cur_ip);
 		v = v->next;
@@ -494,17 +496,19 @@ nvmByteCode *nvmAssembleNetILFromBuffer(char *asmBuffer, char *ErrBuf)
 
 nvmByteCode *nvmLoadBytecodeImage(char *FileName, char *ErrBuf)
 {
-	nvmByteCode *bytecode;
-	FILE	*file;
-	unsigned int FileSize;
-	uint32_t i;
+nvmByteCode *bytecode;
+FILE	*file;
+unsigned int FileSize;
+uint32_t i;
 
 	NETVM_ASSERT(FileName != NULL, "FileName cannot be NULL");
 
 	// Open the bytecode file
 	file = fopen(FileName, "rb");
 
-	VERB1(BYTECODE_VERB, "nvmBytecode_Open: loading the bytecode %s\n", FileName);
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_BYTECODE_LOAD_SAVE, "nvmBytecode_Open: loading the bytecode %s\n", FileName);
+#endif
 
 	if (file == NULL)
 	{
@@ -556,15 +560,17 @@ nvmByteCode *nvmLoadBytecodeImage(char *FileName, char *ErrBuf)
 		bytecode->Hdr->FileHeader.SizeOfOptionalHeader -
 		sizeof(nvmByteCodeImageStructOpt));
 
-	//First byte of section table section, it's bytecode
+	// First byte of section table section, it's bytecode
 	bytecode->Sections = (char*)&bytecode->SectionsTable[bytecode->Hdr->FileHeader.NumberOfSections];
 
-	//sezioni INIT PORTABLE PUSH PULL
+	// Sections INIT PORTABLE PUSH PULL
 	bytecode->SizeOfSections = 0;
+
 	for (i=0; i < bytecode->Hdr->FileHeader.NumberOfSections; i++)
+	{
 		//compute the total size of section
 		bytecode->SizeOfSections += bytecode->SectionsTable[i].SizeOfRawData;
-
+	}
 
 	return bytecode;
 }
@@ -573,15 +579,12 @@ nvmByteCode *nvmLoadBytecodeImage(char *FileName, char *ErrBuf)
 
 int32_t nvmCreateBytecodeFromAsmBuffer(nvmByteCode *bytecode, char *NetVMAsmBuffer)
 {
-
-//	FILE *file;
-
-	pseg v;
-	nvmByteCode * NetVMBinary;
-	char *ContiguousBinary;
-	char ErrBuf[2048] = "";
-	yy_set_error_buffer(ErrBuf, sizeof(ErrBuf));
-	yy_set_warning_buffer(ErrBuf, sizeof(ErrBuf));
+pseg v;
+nvmByteCode * NetVMBinary;
+char *ContiguousBinary;
+char ErrBuf[2048] = "";
+yy_set_error_buffer(ErrBuf, sizeof(ErrBuf));
+yy_set_warning_buffer(ErrBuf, sizeof(ErrBuf));
 
 	if (NetVMAsmBuffer == NULL)
 	{
@@ -597,7 +600,9 @@ int32_t nvmCreateBytecodeFromAsmBuffer(nvmByteCode *bytecode, char *NetVMAsmBuff
 
 	if (strlen(ErrBuf) > 0)
 	{
-		VERB1(BYTECODE_VERB, "Warning, assembler warnings:\n%s", ErrBuf);
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_BYTECODE_LOAD_SAVE, "Warning, assembler warnings:\n%s", ErrBuf);
+#endif
 	}
 
 	NetVMBinary = nvmCreateBytecode(0, 0, 0);
@@ -610,7 +615,9 @@ int32_t nvmCreateBytecodeFromAsmBuffer(nvmByteCode *bytecode, char *NetVMAsmBuff
 	// Save the segments
 	while (v != NULL)
 	{
-		VERB3(BYTECODE_VERB, "Saving section %s, len=%d, flags=%d\n", v->label, v->cur_ip, v->flags);
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_BYTECODE_LOAD_SAVE, "Saving section %s, len=%d, flags=%d\n", v->label, v->cur_ip, v->flags);
+#endif
 
 		AddSection(NetVMBinary, v->label, v->flags, v->istream, v->cur_ip);
 		v = v->next;
@@ -669,18 +676,15 @@ int32_t nvmCreateBytecodeFromAsmBuffer(nvmByteCode *bytecode, char *NetVMAsmBuff
 	free(NetVMBinary->Sections);
 	free(NetVMBinary->Hdr);
 	free(NetVMBinary);
-// 	file = fopen("bytecodedump.txt", "w");
-//	printf("Bytecode Info:\n");
-//	nvmDumpBytecodeInfo(stdout, bytecode);
-// 	fclose(file);
+
 	return nvmSUCCESS;
 }
 
 
 int32_t nvmOpenBinaryFile(nvmByteCode *nvmBytecode, char *FileName)
 {
-	unsigned int FileSize;
-	uint32_t i;
+unsigned int FileSize;
+uint32_t i;
 
 	NETVM_ASSERT(nvmBytecode != NULL, "nvmBytecode cannot be NULL");
 	NETVM_ASSERT(FileName != NULL, "FileName cannot be NULL");
@@ -688,11 +692,12 @@ int32_t nvmOpenBinaryFile(nvmByteCode *nvmBytecode, char *FileName)
 	// Open the bytecode file
 	nvmBytecode->TargetFile= fopen(FileName, "rb");
 
-	VERB1(BYTECODE_VERB, "nvmBytecode_Open: loading the bytecode %s\n", FileName);
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_BYTECODE_LOAD_SAVE, "nvmBytecode_Open: loading the bytecode %s\n", FileName);
+#endif
 
 	if (nvmBytecode->TargetFile == NULL)
 	{
-		//errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "Error opening the file that keeps the NetVM bytecode.");
 		//DELETE_PTR(bytecode);
 		return nvmFAILURE;
 	}

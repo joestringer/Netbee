@@ -116,10 +116,11 @@ unsigned int i;
 	// initialize the parameters needed to dump everything to file (if needed)
 	if (m_keepAllPackets)
 	{
-	unsigned int BytesToWrite;
+//	unsigned int BytesToWrite;
 	char Buffer[NETPDL_MAX_STRING];
 
-		BytesToWrite= GetSummaryAscii(Buffer, sizeof(Buffer) );
+//		BytesToWrite= GetSummaryAscii(Buffer, sizeof(Buffer) );
+		GetSummaryAscii(Buffer, sizeof(Buffer) );
 
 		if (m_PSMLReader->InitializeParsForDump(PSML_ROOT, Buffer) == nbFAILURE)
 		{
@@ -495,7 +496,7 @@ struct _nbNetPDLElementBase *NetPDLIndexItem;
 
 			case nbNETPDL_IDEL_IF:
 			{
-			int RetVal;
+//			int RetVal;
 			unsigned int Result;
 			struct _nbNetPDLElementIf *IndexItemInfo;
 
@@ -504,7 +505,8 @@ struct _nbNetPDLElementBase *NetPDLIndexItem;
 
 				IndexItemInfo= (struct _nbNetPDLElementIf *) NetPDLIndexItem;
 
-				RetVal= m_exprHandler->EvaluateExprNumber(IndexItemInfo->ExprTree, PDMLProtoItem->FirstField, &Result);
+//				RetVal= m_exprHandler->EvaluateExprNumber(IndexItemInfo->ExprTree, PDMLProtoItem->FirstField, &Result);
+				m_exprHandler->EvaluateExprNumber(IndexItemInfo->ExprTree, PDMLProtoItem->FirstField, &Result);
 
 				// If the 'if' is verified, Result contains a non-zero number
 				if (Result)

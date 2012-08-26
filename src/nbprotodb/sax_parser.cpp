@@ -315,12 +315,11 @@ int Result;
 		struct _nbNetPDLElementAdtfield *NetPDLElementAdtfield;
 		struct _nbNetPDLElementAdtfield NetPDLElementAdtfieldBuf;
 		struct _nbNetPDLElementAdt *NetPDLElementADTWanted= NULL;
-		char *CurrProtoName;
 		size_t SizeToDuplicate;
 		struct _nbNetPDLElementFieldBase *NetPDLElementField;
 
 			NetPDLElementAdtfield= (struct _nbNetPDLElementAdtfield *) NetPDLDatabase->GlobalElementsList[i];
-			CurrProtoName= GetProtoName((struct _nbNetPDLElementBase *) NetPDLElementAdtfield);
+			const char *CurrProtoName= GetProtoName((struct _nbNetPDLElementBase *) NetPDLElementAdtfield);
 
 			// Let's check the 'adt' -- Local ADTs first
 			for (unsigned int j= 0; (NetPDLElementADTWanted == NULL) && (j < NetPDLDatabase->LocalADTNItems); j++)
@@ -615,7 +614,7 @@ struct _nbNetPDLElementBase *NetPDLTempElement;
 				if (NetPDLFieldElement->ADTRef)
 				{
 				struct _nbNetPDLElementAdt *NetPDLElementADTWanted= NULL;
-				char *CurrProtoName= GetProtoName(NetPDLTempElement);
+				const char *CurrProtoName= GetProtoName(NetPDLTempElement);
 
 					// Let's check the 'adt' -- Local ADTs first
 					for (unsigned int i= 0; (NetPDLElementADTWanted == NULL) && (i < NetPDLDatabase->LocalADTNItems); i++)

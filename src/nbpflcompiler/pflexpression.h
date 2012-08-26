@@ -13,6 +13,7 @@
 #include "tree.h"
 #include <list>
 #include <iostream>
+#include "sft/librange/common.h" // for RangeOperator_t
 
 using namespace std;
 
@@ -26,9 +27,10 @@ enum PFLExpressionType
 {
 	PFL_BINARY_EXPRESSION,	///< Binary Expression (for AND, OR operators)
 	PFL_UNARY_EXPRESSION,	///< Unary Expression (for NOT operator)
-	PFL_TERM_EXPRESSION		///< A term of a boolean expression
+	PFL_TERM_EXPRESSION,	///< A term of a boolean expression
+	PFL_REGEXP_EXPRESSION,
+	PFL_SET_EXPRESSION
 };
-
 
 
 /*!
@@ -38,8 +40,25 @@ enum PFLOperator
 {
 	BINOP_BOOLAND,		///< Logical AND
 	BINOP_BOOLOR,		///< Logical OR
-	UNOP_BOOLNOT
+	UNOP_BOOLNOT,
+	REGEXP_OP,
+	SET_OP
 
+};
+
+enum PFLInclusionOperator //[icerrato]
+{
+	IN,
+	NOTIN,
+	DEFAULT_INCLUSION
+};
+
+enum PFLRepeatOperator //[icerrato]
+{
+	PLUS = 0,
+	STAR,
+	QUESTION,
+	DEFAULT_ROP
 };
 
 
@@ -47,6 +66,7 @@ enum PFLOperator
 	\brief Types for a PFL action
  */
 enum PFLActionType
+
 {
 	PFL_RETURN_PACKET_ACTION,
 	PFL_EXTRACT_FIELDS_ACTION,
@@ -61,91 +81,12 @@ class PFLIndex;
 /*!
 	\brief This class represents a single PFL statement, which is composed of a boolean filtering expression
 			and a corresponding action, like return packet or extract fields
-*/ 
-
-class PFLExpression 
-{
-private:
-	static uint32	m_Count;
-	uint32			m_ID;
-protected:
-
-	PFLExpressionType m_Type;		//!<Represents the kind of the expression tree node (one of the \ref PFLExpressionType enumeration values)
-	bool			m_Const;		//!<Flag: if true the expression is constant
-
-public:
-	/*!
-		\brief constructor
-		\param type the kind of the expression tree node (one of the \ref PFLExpressionType enumeration values)
-	*/
-	PFLExpression(PFLExpressionType type)
-		:m_Type(type), m_Const(false)
-	{
-		m_ID = m_Count++;
-	}
-	
-	/*!
-		\brief Default destructor
-	*/
-	virtual ~PFLExpression();
-
-	
-	/*!
-		\brief It prints out the details of the expression to stderr.
-		\param level Nesting level of the expression. Use to properly indent the text on screen.
-	*/
-	virtual void Printme(int level) = 0;
-
-	/*!
-		\brief Appends to outfile the current expression node in Dot format (useful to be 
-		visualized by the dot program of the graphviz package).
-		\param outFile Pointer to the output text file
-	*/
-	virtual void PrintMeDotFormat(ostream &outFile) = 0;
-
-	/*!
-		\brief Transforms binary expressions in the form "const <op> expr" into expressions 
-		in the form  "expr <op> const"
-	*/
-	virtual void ToCanonicalForm() = 0;
-
-
-	/*!
-		\brief It returns the runtime type of the PFLExpression 
-		\return The type of the expression, i.e. one of the \ref PFLExpressionType enumeration values
-	*/
-	PFLExpressionType GetType()
-	{
-		return m_Type;
-	}
-
-
-	/*!
-		\brief It returns the ID of the expression
-		\return the numeric ID of the expression
-	*/
-
-	uint32 GetID()
-	{
-		return m_ID;
-	}
-
-	/*!
-		\brief It tells whether the expression is constant or not
-		\return true if the expression is constant, false otherwise
-	*/
-
-	bool IsConst()
-	{
-		return m_Const;
-	}
-};
-
+*/
 class PFLStatement
 {
-	PFLExpression	*m_Exp;		//The filtering expression
+	PFLExpression		*m_Exp;		//The filtering expression
 	PFLAction		*m_Action;	//The corresponding action
-	PFLIndex		*m_HeaderIndex;	//The index header selected
+	PFLIndex		*m_HeaderIndex;	//The index header selected //[icerrato] this variable is useless... it must be associated to the PFLTermExpression
 	
 public:
 	/*!
@@ -170,42 +111,26 @@ public:
 	*/
 	PFLAction *GetAction(void);
 
-	PFLIndex *GetHeaderIndex(void);
+	PFLIndex *GetHeaderIndex(void); //[icerrato]
 };
 
-class PFLIndex
-{
-	uint32 m_Index;
-
-public:
-
-	PFLIndex(uint32 num)
-		:m_Index(num){}
-
-	virtual ~PFLIndex();
-
-	uint32 GetNum(void)
-	{
-		return m_Index;
-	}
-};
 
 /*!
 	\brief This class represents a generic PFL action
-*/ 
+*/
 class PFLAction
 {
 	PFLActionType m_Type;	//!< the kind of action
-	
+
 public:
-	
+
 	/*!
 		\brief constructor
 		\param type the kind of this action
 	*/
 	PFLAction(PFLActionType type)
 		:m_Type(type){}
-	
+
 	/*!
 		\brief destructor
 	*/
@@ -218,6 +143,20 @@ public:
 	{
 		return m_Type;
 	}
+	
+	string ToString()
+	{
+		switch (m_Type)
+		{
+			case PFL_RETURN_PACKET_ACTION: 
+				return string("PFL_RETURN_PACKET_ACTION");	
+			case PFL_EXTRACT_FIELDS_ACTION:
+				return string("PFL_EXTRACT_FIELDS_ACTION");
+			case PFL_CLASSIFY_ACTION: 
+				return string("PFL_CLASSIFY_ACTION");
+		}
+		return string("");
+	}	
 };
 
 
@@ -229,7 +168,7 @@ class PFLReturnPktAction: public PFLAction
 {
 	uint32 	m_Port;		//!< the port where accepted packets will be sent (NOTE: probably in future versions of the language this will be discarded)
 public:
-	
+
 	/*!
 		\brief constructor
 		\param port the port where accepted packets will be sent
@@ -251,16 +190,16 @@ class PFLExtractFldsAction: public PFLAction
 	bool 			m_InnerProto;
 	bool			m_ProtoPath;
 //************************************************************
-	
+
 public:
-	
+
 	/*!
 		\brief constructor
 	*/
 	PFLExtractFldsAction()
 		:PFLAction(PFL_EXTRACT_FIELDS_ACTION){}
-	
-	
+
+
 	/*!
 	 	\brief adds a field to the list
 	 	\param field a pointer to a field symbol
@@ -269,8 +208,8 @@ public:
 	{
 		m_FieldsList.push_back(field);
 	}
-	
-	
+
+
 	/*!
 	 	\brief returns a reference to the internal list of fields
 	*/
@@ -288,17 +227,152 @@ public:
 	This class is not instantiable directly. You should use the derived
 	classes.
 */
+class PFLExpression
+{
+private:
+	static uint32		m_Count;
+	uint32			m_ID;
+protected:
+
+	string			m_Text;			//!<The original expression text
+
+	PFLExpressionType m_Type;		//!<Represents the kind of the expression tree node (one of the \ref PFLExpressionType enumeration values)
+	bool			m_Const;		//!<Flag: if true the expression is constant
+
+public:
+	/*!
+		\brief constructor
+		\param type the kind of the expression tree node (one of the \ref PFLExpressionType enumeration values)
+	*/
+	PFLExpression(PFLExpressionType type, bool isConst = false)
+		:m_Type(type), m_Const(isConst)
+	{
+          m_ID = m_Count++;
+	}
+
+	/*!
+		\brief destructor
+	*/
+	virtual ~PFLExpression();
+
+
+	virtual string ToString() = 0;
+
+
+	virtual PFLExpression *Clone() = 0;
+
+	/*!
+		\brief It prints out the details of the expression to stderr.
+		\param level Nesting level of the expression. Use to properly indent the text on screen.
+	*/
+	virtual void Printme(int level) = 0;
+
+	/*!
+		\brief Appends to outfile the current expression node in Dot format (useful to be 
+		visualized by the dot program of the graphviz package).
+		\param outFile Pointer to the output text file
+	*/
+	virtual void PrintMeDotFormat(ostream &outFile) = 0;
+
+	/*!
+		\brief Transforms binary expressions in the form "const <op> expr" into expressions
+		in the form  "expr <op> const"
+	*/
+	virtual void ToCanonicalForm() = 0;
+
+
+	/*!
+		\brief It returns the runtime type of the PFLExpression
+		\return The type of the expression, i.e. one of the \ref PFLExpressionType enumeration values
+	*/
+
+	PFLExpressionType GetType()
+	{
+		return m_Type;
+	}
+
+	/*!
+		\brief It returns the ID of the expression
+		\return the numeric ID of the expression
+	*/
+
+	uint32 GetID()
+	{
+		return m_ID;
+	}
+
+	/*!
+		\brief It tells whether the expression is constant or not
+		\return true if the expression is constant, false otherwise
+	*/
+
+	bool IsConst()
+	{
+		return m_Const;
+	}
+
+	bool IsTerm()
+	{
+		return m_Type == PFL_TERM_EXPRESSION;
+	}
+
+	bool IsBinary()
+	{
+		return m_Type == PFL_BINARY_EXPRESSION;
+	}
+
+	bool IsUnary()
+	{
+		return m_Type == PFL_UNARY_EXPRESSION;
+	}
+
+
+	void SetExprText(string s)
+	{
+		m_Text = s;
+	}
+
+        virtual string getAttribute() = 0;
+        virtual SymbolProto* GetProtocol() = 0;
+};
+
+
+class PFLIndex
+{
+	uint32 m_Index;
+
+public:
+
+	PFLIndex(uint32 num)
+		:m_Index(num){}
+
+	virtual ~PFLIndex();
+
+	uint32 GetNum(void)
+	{
+		return m_Index;
+	}
+};
+
 
 
 /*!
-	\brief	It represents a binary expression. 
+	\brief This class represents a generic expression tree node.
+
+	This class is not instantiable directly. You should use the derived
+	classes.
+*/
+
+
+/*!
+	\brief	It represents a binary expression.
 */
 class PFLBinaryExpression : public PFLExpression
 {
 
 
 private:
-	
+
 	/*!
 		\brief The left operand (=left node).
 	*/
@@ -319,22 +393,26 @@ private:
 
 public:
 	virtual ~PFLBinaryExpression();
+	virtual string ToString();
+	virtual PFLExpression *Clone();
+	virtual void ToCanonicalForm();
+        virtual string getAttribute();
+        virtual SymbolProto* GetProtocol();
 	virtual void Printme(int level);
 	virtual void PrintMeDotFormat(ostream &outFile);
-	virtual void ToCanonicalForm();
-	
+
 
 	/*!
 		\brief It creates a new binary expression.
 
 		It creates a new binary expression, given the left and right operands, and the operator between them.
-		
+
 		\param LeftExpression Pointer to the left operand.
 		\param RightExpression Pointer to the right operand.
 		\param Operator Operator between the operands.
 	*/
 	PFLBinaryExpression(PFLExpression *LeftExpression, PFLExpression *RightExpression, PFLOperator Operator);
-	
+
 	/*!
 		\brief	Returns the operator between the operands.
 
@@ -345,7 +423,7 @@ public:
 	{
 		return m_Operator;
 	}
-	
+
 	/*!
 		\brief	Returns the left operand (=left node).
 
@@ -387,14 +465,14 @@ public:
 		m_RightNode = right;
 	}
 
-	
-	
+
+
 };
 
 /*!
-	\brief	It represents a unary expression. 
-	
-	For example "~ip" is a unary expression. "ip" represents the operand, 
+	\brief	It represents a unary expression.
+
+	For example "~ip" is a unary expression. "ip" represents the operand,
 	"~" represents the operator.
 */
 class PFLUnaryExpression : public PFLExpression
@@ -402,16 +480,20 @@ class PFLUnaryExpression : public PFLExpression
 public:
 
 	virtual ~PFLUnaryExpression();
+	virtual string ToString();
+	virtual PFLExpression *Clone();
+	virtual void ToCanonicalForm();
+        virtual string getAttribute();
+        virtual SymbolProto* GetProtocol();
 	virtual void Printme(int level);
 	virtual void PrintMeDotFormat(ostream &outFile);
-	virtual void ToCanonicalForm();
-	
+
 
 	/*!
 		\brief It creates a new unary expression.
 
 		It creates a new unary expression, given the operand, and the operator prepended/postpended to it.
-		
+
 		\param Expression Pointer to the operand.
 		\param RightExpression Pointer to the right operand.
 		\param Operator Operator prepended/postpended to the operand.
@@ -429,7 +511,7 @@ public:
 		return this->m_Operator;
 	}
 
-	
+
 	/*!
 		\brief Returns the operand of the expression
 
@@ -451,12 +533,12 @@ public:
 	}
 
 private:
-	
+
 	/*!
 		\brief The operator of the expression.
 	*/
 	PFLOperator m_Operator;
-	
+
 	/*!
 		\brief The operand of the expression.
 	*/
@@ -465,7 +547,7 @@ private:
 
 /*!
 	\brief	It represents a leaf node.
-	
+
 	Any leaf node represents a boolean term in the filter expression, i.e. a term that evaluates the presence of a specific protocol
 	in the packet, or an IR expression that evaluates a condition on some protocol fields
 */
@@ -476,31 +558,109 @@ protected:
 	/*!
 		\brief The protocol (symbol) associated to the boolean terminal node
 	*/
-	SymbolProto *m_Protocol;
-	Node		*m_IRExpr;
-	uint32		m_Ind;
-
+	SymbolProto		*m_Protocol;
+	uint32			m_HeaderIndex; 
+	Node			*m_IRExpr;
+	bool			m_Value;
+	bool			m_mandatoryTunnels; //for the keyword "tunneled"
+	
 public:
 	~PFLTermExpression();
+	virtual string ToString();
+	virtual PFLTermExpression *Clone();
+	virtual void ToCanonicalForm();
+        virtual string getAttribute();
 	virtual void Printme(int level);
 	virtual void PrintMeDotFormat(ostream &outFile);
-	virtual void ToCanonicalForm();
-	
 
+	void SetMandatoryTunnels()
+	{
+		m_mandatoryTunnels = true;
+	}
+	
+	void ResetMandatoryTunnels()
+	{
+		m_mandatoryTunnels = false;
+	}
+	
+	bool MandatoryTunnels(){
+		return m_mandatoryTunnels;
+	}
+
+	uint32 GetHeaderIndex(void){
+		return m_HeaderIndex;
+	}
+	
+	void SetHeaderIndex(uint32 index){
+		m_HeaderIndex = index;
+	}
 
 	SymbolProto *GetProtocol()
 	{
 		return m_Protocol;
 	}
 
-	void SetProtocol(SymbolProto *protocol)
-	{
-		m_Protocol = protocol;
-	}
 
 	Node *GetIRExpr()
 	{
 		return m_IRExpr;
+	}
+
+        RangeOperator_t getIRRangeOperator() {
+          /* A normalization is needed here.
+           * Both "foo > X" and "X < foo" have the same meaning,
+           * but on the upper levels I expect always the first form.
+           * So, if we find in the second case,
+           * try and invert the operator on the fly.
+           */
+          if (m_IRExpr->Kids[0]->Sym == NULL) {
+            // that is, if we are in "canonical" form: "foo > X"
+            switch(GET_OP(m_IRExpr->Op)){
+            case OP_EQ: return EQUAL;
+            case OP_LT: return LESS_THAN;
+            case OP_LE: return LESS_EQUAL_THAN;
+            case OP_GT: return GREAT_THAN;
+            case OP_GE: return GREAT_EQUAL_THAN;
+            case OP_MATCH: return MATCH;
+            case OP_CONTAINS: return CONTAINS;
+            default: nbASSERT(false, "Congratulations, you have found a bug");
+            }
+          }
+          else {
+            // "X < foo"
+            switch(GET_OP(m_IRExpr->Op)){
+            case OP_EQ: return EQUAL;
+            case OP_LT: return GREAT_THAN;
+            case OP_LE: return GREAT_EQUAL_THAN;
+            case OP_GT: return LESS_THAN;
+            case OP_GE: return LESS_EQUAL_THAN;
+            default: nbASSERT(false, "Congratulations, you have found a bug");
+            }
+          }
+        }
+
+        uint32 getIRValue() {
+          // reverse engineering FTW
+          Node *tmp = (m_IRExpr->Kids[0]->Sym == NULL?
+                       m_IRExpr->Kids[1] :
+                       m_IRExpr->Kids[0]);
+          struct SymbolIntConst* tmp2 = (struct SymbolIntConst*) tmp->Sym;
+          return tmp2->Value;
+        }
+        
+        string getIRStringValue(){
+        
+	  Node *tmp = (m_IRExpr->Kids[0]->Sym == NULL?
+          m_IRExpr->Kids[1] :
+          m_IRExpr->Kids[0]);
+	  struct SymbolStrConst* tmp2 = (struct SymbolStrConst*) tmp->Sym;
+	  return tmp2->Name;
+        
+        }
+
+	void SetProtocol(SymbolProto *proto)
+	{
+		m_Protocol = proto;
 	}
 
 	void SetIRExpr(Node *irExpr)
@@ -508,15 +668,12 @@ public:
 		m_IRExpr = irExpr;
 	}
 
-	uint32 GetIndex()
+	bool GetValue()
 	{
-		return m_Ind;
+		nbASSERT(m_Const, "cannot retrieve the value of a non-constant terminal node");
+		return m_Value;
 	}
 
-	void SetIndex(uint32 index)
-	{
-		m_Ind = index;
-	}
 
 	/*!
 		\brief It creates a leaf node
@@ -524,7 +681,115 @@ public:
 		\param proto a protocol symbol
 		\param an IR expression node that evaluates a condition
 	*/
-	PFLTermExpression(SymbolProto *proto, Node *expr = 0, uint32 index = 0);
+	PFLTermExpression(SymbolProto *proto, uint32 indexing, Node *expr = 0, bool mandatoryTunnels = false);//[icerrato]
+	
+	PFLTermExpression(SymbolProto *proto, Node *expr = 0, bool mandatoryTunnels = false);
+
+	PFLTermExpression(bool constVal, bool mandatoryTunnels = false);
 };
 
+//This class represent a set of protocol, i.e. a list of protocols that will be translated in an OR operation of the regular expression
+class PFLSetExpression : public PFLExpression
+{
 
+private:
+	
+	list<PFLTermExpression*>* m_Elements; //this list contains the element of the set (however it is represented with a list :-D)
+	PFLOperator m_Operator;
+	PFLInclusionOperator m_Inclusion; //indicate if the set is involved in a "notin" or "in" operation
+	PFLRepeatOperator m_Repeat; //indicate +,*,? or nothing
+	bool	m_AnyPlaceholder;
+	
+public:
+	virtual ~PFLSetExpression();
+	virtual string ToString();
+	virtual PFLExpression *Clone();
+	virtual void ToCanonicalForm();
+	virtual string getAttribute();
+	virtual SymbolProto* GetProtocol();
+	virtual void Printme(int level);
+	virtual void PrintMeDotFormat(ostream &outFile);
+
+	PFLSetExpression(list<PFLTermExpression*> *Elements, PFLOperator Operator, PFLRepeatOperator Repeat = DEFAULT_ROP, PFLInclusionOperator Inclusion = DEFAULT_INCLUSION);
+	
+	PFLRepeatOperator GetRepeatOperator(){
+		return m_Repeat;
+	}
+	
+	void SetRepeatOperator(PFLRepeatOperator op){
+		m_Repeat = op;
+	}
+	
+	void SetInclusionOperator(PFLInclusionOperator op){
+		m_Inclusion = op;
+	}
+	
+	PFLInclusionOperator GetInclusionOperator(){
+		return m_Inclusion;
+	}
+
+	PFLOperator GetOperator()
+	{
+		return m_Operator;
+	}
+
+	list<PFLTermExpression*>* GetElements()
+	{
+		return m_Elements;
+	}
+	
+	void SetElements(list<PFLTermExpression*>* Elements)
+	{
+		m_Elements = Elements;
+	}
+	
+	bool IsAnyPlaceholder()
+	{
+		return m_AnyPlaceholder;
+	}
+	
+	void SetAnyPlaceholder(bool AnyPlaceholder)
+	{
+		m_AnyPlaceholder = AnyPlaceholder;
+	}
+
+};
+
+//This class represent an header chaining, that will be translated in a regular expression
+class PFLRegExpExpression : public PFLExpression
+{
+
+private:
+	list<PFLSetExpression*>* m_InnerList; //an element of the list is a set. The set can contain 0, 1 or more elements. If the set has 0 elements, it represents the any placeholder
+	PFLOperator m_Operator;
+	
+public:
+	virtual ~PFLRegExpExpression();
+	virtual string ToString();
+	virtual PFLExpression *Clone();
+	virtual void ToCanonicalForm();
+	virtual string getAttribute();
+	virtual SymbolProto* GetProtocol();
+	virtual void Printme(int level);
+	virtual void PrintMeDotFormat(ostream &outFile);
+
+	PFLRegExpExpression(list<PFLSetExpression*> *InnerList, PFLOperator Operator);
+	
+
+	PFLOperator GetOperator()
+	{
+		return m_Operator;
+	}
+
+	
+	list<PFLSetExpression*>* GetInnerList()
+	{
+		return m_InnerList;
+	}
+
+	
+	void SetInnerList(list<PFLSetExpression*>* InnerList)
+	{
+		m_InnerList = InnerList;
+	}
+};

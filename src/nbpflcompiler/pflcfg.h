@@ -13,7 +13,7 @@
 #include "digraph.h"
 #include "symbols.h"
 #include "statements.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include <iostream>
 #include <fstream>
 #include "basicblock.h"
@@ -31,7 +31,7 @@ enum BBKind
 };
 
 
-struct PFLBasicBlock: public jit::BasicBlock<PFLMIRNode>
+struct PFLBasicBlock: public jit::BasicBlock<MIRONode>
 {
 	typedef DiGraph<PFLBasicBlock*>::GraphNode node_t;
 	typedef PFLBasicBlock ThisType;
@@ -41,17 +41,17 @@ struct PFLBasicBlock: public jit::BasicBlock<PFLMIRNode>
 	bool			Valid;
 	node_t 			*nodePtr;
 	CodeList		Code;
-	std::list<PFLMIRNode*> *PFLMIRNodeCode;
+	std::list<MIRONode*> *MIRONodeCode;
 
 	PFLBasicBlock(BBKind kind, SymbolLabel *startLbl = 0, uint16 id = 0)
-		: jit::BasicBlock<PFLMIRNode>(id), Kind(kind), StartLabel(startLbl), Valid(true), nodePtr(NULL), Code(), PFLMIRNodeCode(NULL) {
-			PFLMIRNodeCode = new std::list<PFLMIRNode*>;
+		: jit::BasicBlock<MIRONode>(id), Kind(kind), StartLabel(startLbl), Valid(true), nodePtr(NULL), Code(), MIRONodeCode(NULL) {
+			MIRONodeCode = new std::list<MIRONode*>;
 		}
 
 	PFLBasicBlock(uint16_t id)
-		: jit::BasicBlock<PFLMIRNode>(id), Kind(BB_CODE), StartLabel(0), Valid(true), nodePtr(NULL), Code(), PFLMIRNodeCode(NULL) 
+		: jit::BasicBlock<MIRONode>(id), Kind(BB_CODE), StartLabel(0), Valid(true), nodePtr(NULL), Code(), MIRONodeCode(NULL) 
 	{
-			PFLMIRNodeCode = new std::list<PFLMIRNode*>;
+			MIRONodeCode = new std::list<MIRONode*>;
 	}
 
 
@@ -60,18 +60,18 @@ struct PFLBasicBlock: public jit::BasicBlock<PFLMIRNode>
 	node_t * getNode() { return dynamic_cast<node_t*>(nodePtr); };
 	void setNode(node_t *node) { nodePtr = node; };
 
-	void setCode(std::list<PFLMIRNode*> *list) { PFLMIRNodeCode = list; }
-	std::list<PFLMIRNode*> * getMIRNodeCode() { return PFLMIRNodeCode; }
+	void setCode(std::list<MIRONode*> *list) { MIRONodeCode = list; }
+	std::list<MIRONode*> * getMIRNodeCode() { return MIRONodeCode; }
 
-	void addHeadInstruction(PFLMIRNode *node);
-	void addTailInstruction(PFLMIRNode *node);
+	void addHeadInstruction(MIRONode *node);
+	void addTailInstruction(MIRONode *node);
 
 	std::list<node_t *>& getSuccessors() { return getNode()->GetSuccessors(); }
 	std::list<node_t *>& getPredecessors() { return getNode()->GetPredecessors(); }
 
-	std::list<PFLMIRNode*>& getCode() { return *PFLMIRNodeCode; }
+	std::list<MIRONode*>& getCode() { return *MIRONodeCode; }
 	
-	SymbolLabel * getStartLabel() { return StartLabel; }
+	SymbolLabel * getStartLabel() { return StartLabel;}
 
 	void add_copy_tail(RegType src, RegType dst);
 	void add_copy_head(RegType src, RegType dst);
@@ -80,20 +80,20 @@ struct PFLBasicBlock: public jit::BasicBlock<PFLMIRNode>
 	 * \brief get an iterator for the code list
 	 * \return an iterator at the start of the code list
 	 */
-	IRStmtNodeIterator codeBegin() { return PFLMIRNodeCode->begin(); }
+	IRStmtNodeIterator codeBegin() { return MIRONodeCode->begin(); }
 
 	/*!
 	 * \brief get an iterator for the code list
 	 * \return an iterator at the end of the code list
 	 */
-	IRStmtNodeIterator codeEnd() { return PFLMIRNodeCode->end(); }
+	IRStmtNodeIterator codeEnd() { return MIRONodeCode->end(); }
 
 	/*!
 	 * \brief deletes code from this BB list
 	 * \param start iterator to the first element to delete
 	 * \return iterator to the element after the last element deleted
 	 */
-	IRStmtNodeIterator eraseCode(IRStmtNodeIterator start) { return PFLMIRNodeCode->erase(start); }
+	IRStmtNodeIterator eraseCode(IRStmtNodeIterator start) { return MIRONodeCode->erase(start); }
 
 	/*!
 	 * \brief deletes code from this BB list
@@ -101,13 +101,13 @@ struct PFLBasicBlock: public jit::BasicBlock<PFLMIRNode>
 	 * \param end iterator to the last element to delete
 	 * \return iterator to the element after the last element deleted
 	 */
-	IRStmtNodeIterator eraseCode(IRStmtNodeIterator start, IRStmtNodeIterator end) { return PFLMIRNodeCode->erase(start, end); }
+	IRStmtNodeIterator eraseCode(IRStmtNodeIterator start, IRStmtNodeIterator end) { return MIRONodeCode->erase(start, end); }
 
 
 	//! Return real statement number
 	uint32_t getCodeSize(); 
 
-	PFLMIRNode * getLastStatement();
+	MIRONode * getLastStatement();
 
 
 	class BBIterator
@@ -209,7 +209,7 @@ typedef StrSymbolTable<PFLBasicBlock*> LabelMap_t;
 class CFGBuilder; // forward decl
 class CFGVisitor;
 
-class PFLCFG: public jit::CFG<PFLMIRNode, PFLBasicBlock>
+class PFLCFG: public jit::CFG<MIRONode, PFLBasicBlock>
 {
 private:
 	friend class CFGBuilder;
@@ -287,11 +287,13 @@ public:
 
 class CFGBuilder
 {
+	//BB means "Basic Block"
+
 	typedef PFLCFG::BBType BBType;
 
-	PFLCFG					&m_CFG;
+	PFLCFG			&m_CFG;
 	BBType			*m_CurrBB;
-	bool				IsFirstBB;			
+	bool			IsFirstBB;			
 
 	void VisitStatement(StmtBase *stmt);
 	void FoundLabel(StmtLabel *stmtLabel);
@@ -304,6 +306,7 @@ class CFGBuilder
 	void BuildCFG(CodeList &codeList);
 public:
 
+	//contructor
 	CFGBuilder(PFLCFG &cfg)
 		:m_CFG(cfg), m_CurrBB(0), IsFirstBB(true){}
 

@@ -9,21 +9,34 @@
 
 #include "defs.h"
 #include "pflexpression.h"
+#include "compile.h"
 #include "parser.hpp"
 #include "utils.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-extern int pfl_error(const char *s);
 
-
-#define YY_DECL int yylex (YYSTYPE *lvalp)
+#define YY_NO_INPUT
 //#define YY_NO_UNPUT
 static YY_BUFFER_STATE src_buffer = 0;
+static uint32 col = 0; //holds the current column
+static uint32 row = 1; //holds the current row
 
 
+#define UPDATE_LOC \
+		do{\
+			llocp->first_column = col;\
+			llocp->first_line = row;\
+			col += strlen(yytext);\
+			llocp->last_column = col;\
+			llocp->last_line = row;\
+		}while(0)
 
+
+//NOTE: these declarations are duplicated in gramm.y, so if you modify them here you need to do the same in the other file
+#define YY_DECL int pfl_lex (YYSTYPE *lvalp, YYLTYPE *llocp, struct ParserInfo *parserInfo)
+int pfl_error(YYLTYPE *llocp, struct ParserInfo *parserInfo, const char *s);
 
 %}
 
@@ -36,78 +49,97 @@ CHAR		[^\n]
 DECNUMBER	[0-9]+
 HEXNUMBER	0x[0-9a-fA-F]+
 ADDRv4		[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+
+MACADDR		[0-9a-fA-F][0-9a-fA-F]":"[0-9a-fA-F][0-9a-fA-F]":"[0-9a-fA-F][0-9a-fA-F]":"[0-9a-fA-F][0-9a-fA-F]":"[0-9a-fA-F][0-9a-fA-F]":"[0-9a-fA-F][0-9a-fA-F]
 HINDEX		[1-9][0-9]*
 and			"&&"
 or			"||"
 not			"!"
 plus		"+"
+plusplus	"++"
 minus		"-"
 mult		"*"
+multmult	"**"
 bwand		"&"
 bwor		"|"
 bwxor		"^"
 bwnot		"~"
-eq			"=="
-ne			"!="
-gt			">"
-lt			"<"
-ge			">="
-le			"<="
-shl			"<<"
-shr			">>"
+eq		"=="
+ne		"!="
+gt		">"
+lt		"<"
+ge		">="
+le		"<="
+shl		"<<"
+shr		">>"
+string		"\"".[^\"]*"\""
+question	"\?"
 
 
 %%
 
-{DECNUMBER}		{strncpy(lvalp->id, yytext, 255);return PFL_NUMBER;};
-				
-{HEXNUMBER}		{strncpy(lvalp->id, yytext, 255);return PFL_HEXNUMBER;};
+{DECNUMBER}		{UPDATE_LOC; strncpy(lvalp->id, yytext, ID_LEN - 1);return PFL_NUMBER;};
 
-"extractfields" {return PFL_EXTRACT_FIELDS;};
-"returnpacket"	{return PFL_RETURN_PACKET;};
-"retpkt"		{return PFL_RETURN_PACKET;};
-"port"			{return PFL_PORT;};	
-"p"				{return PFL_PORT;}
-"on"			{return PFL_ON;};	
-"and"			{return PFL_AND;};
-"or"			{return PFL_OR;};
-"not"			{return PFL_NOT;};	
-{ID}			{strncpy(lvalp->id, yytext, 255); return PFL_PROTOCOL;};
-{ID}\.{ID}		{strncpy(lvalp->id, yytext, 255); return PFL_PROTOFIELD;};
-{ID}\%{HINDEX}	{strncpy(lvalp->id, yytext, 255); return PFL_PROTOCOL_INDEX;};
-{ID}\%{HINDEX}\.{ID}	{strncpy(lvalp->id, yytext, 255); return PFL_PROTOFIELD_INDEX;};
+{HEXNUMBER}		{UPDATE_LOC; strncpy(lvalp->id, yytext, ID_LEN - 1);return PFL_HEXNUMBER;};
 
-{ID}\*\.{ID}    {strncpy(lvalp->id, yytext, 255); return PFL_MULTIPROTOFIELD;};
-{ID}\.{ID}\*	{strncpy(lvalp->id, yytext, 255); return PFL_PROTOMULTIFIELD;};
+{MACADDR}		{UPDATE_LOC; strncpy(lvalp->id, yytext, ID_LEN - 1);return PFL_MACADDR;};
 
-{ADDRv4}		{strncpy(lvalp->id, yytext, 255); return PFL_IPV4ADDR;};
-{plus}			{return PFL_ADD;};
-{minus}			{return PFL_SUB;};
-{mult}			{return PFL_MUL;};
-{bwand}			{return PFL_BWAND;};
-{bwor}			{return PFL_BWOR;};
-{bwxor}			{return PFL_BWXOR;};
-{bwnot}			{return PFL_BWNOT;};
-{shl}			{return PFL_SHL;}
-{shr}			{return PFL_SHR;}
-{and}			{return PFL_AND;};
-{or}			{return PFL_OR;};
-{not}			{return PFL_NOT;};
-{eq}			{return PFL_EQ;};
-{ne}			{return PFL_NE;};
-{gt}			{return PFL_GT;};
-{lt}			{return PFL_LT;};
-{ge}			{return PFL_GE;};
-{le}			{return PFL_LE;};
-\:				{return ':';};
-\[				{return '[';};
-\]				{return ']';};
-\(				{return '(';};
-\)				{return ')';};
-\n				{return '\n';};
-\,				{return ',';};
-" "|\t			;
-.				printf("unrecognized character: %s", yytext);
+"matches"		{UPDATE_LOC; return PFL_MATCHES;};
+"contains"		{UPDATE_LOC; return PFL_CONTAINS;};
+"casesensitive"		{UPDATE_LOC; return PFL_SENSITIVE;};
+"extractfields" 	{return PFL_EXTRACT_FIELDS;};
+"returnpacket"		{UPDATE_LOC; return PFL_RETURN_PACKET;};
+"retpkt"		{UPDATE_LOC; return PFL_RETURN_PACKET;};
+"port"			{UPDATE_LOC; return PFL_PORT;};
+"p"			{UPDATE_LOC; return PFL_PORT;}
+"on"			{UPDATE_LOC; return PFL_ON;};
+"and"			{UPDATE_LOC; return PFL_AND;};
+"or"			{UPDATE_LOC; return PFL_OR;};
+"not"			{UPDATE_LOC; return PFL_NOT;};
+"in"			{UPDATE_LOC; return PFL_IN;};
+"notin"			{UPDATE_LOC; return PFL_NOTIN;};
+"any"			{UPDATE_LOC; return PFL_ANY;}; 
+"tunneled"		{UPDATE_LOC; return PFL_TUNNELED;};
+{string}		{UPDATE_LOC; memcpy( lvalp->id, &yytext[1], strlen(yytext)-2);   lvalp->id[strlen(yytext)-2]='\0';return PFL_STRING;};
+{ID}			{UPDATE_LOC; strncpy(lvalp->id, yytext, ID_LEN - 1); return PFL_PROTOCOL;};
+{ID}\.{ID}		{UPDATE_LOC; strncpy(lvalp->id, yytext, ID_LEN - 1); return PFL_PROTOFIELD;};
+{ID}\%{HINDEX}		{UPDATE_LOC; strncpy(lvalp->id, yytext, 255); return PFL_PROTOCOL_INDEX;};
+{ID}\%{HINDEX}\.{ID}	{UPDATE_LOC; strncpy(lvalp->id, yytext, 255); return PFL_PROTOFIELD_INDEX;};
+{ID}\*\.{ID}    	{UPDATE_LOC; strncpy(lvalp->id, yytext, 255); return PFL_MULTIPROTOFIELD;};
+{ID}\.{ID}\*		{UPDATE_LOC; strncpy(lvalp->id, yytext, 255); return PFL_PROTOMULTIFIELD;};
+{ADDRv4}		{UPDATE_LOC; strncpy(lvalp->id, yytext, ID_LEN - 1); return PFL_IPV4ADDR;};
+{plus}			{UPDATE_LOC; return PFL_ADD;};
+{plusplus}		{UPDATE_LOC; return PFL_ADDADD;};
+{minus}			{UPDATE_LOC; return PFL_SUB;};
+{question}		{UPDATE_LOC; return PFL_QUESTION;};
+{mult}			{UPDATE_LOC; return PFL_MUL;};
+{multmult}		{UPDATE_LOC; return PFL_MULMUL;};
+{bwand}			{UPDATE_LOC; return PFL_BWAND;};
+{bwor}			{UPDATE_LOC; return PFL_BWOR;};
+{bwxor}			{UPDATE_LOC; return PFL_BWXOR;};
+{bwnot}			{UPDATE_LOC; return PFL_BWNOT;};
+{shl}			{UPDATE_LOC; return PFL_SHL;}
+{shr}			{UPDATE_LOC; return PFL_SHR;}
+{and}			{UPDATE_LOC; return PFL_AND;};
+{or}			{UPDATE_LOC; return PFL_OR;};
+{not}			{UPDATE_LOC; return PFL_NOT;};
+{eq}			{UPDATE_LOC; return PFL_EQ;};
+{ne}			{UPDATE_LOC; return PFL_NE;};
+{gt}			{UPDATE_LOC; return PFL_GT;};
+{lt}			{UPDATE_LOC; return PFL_LT;};
+{ge}			{UPDATE_LOC; return PFL_GE;};
+{le}			{UPDATE_LOC; return PFL_LE;};
+\:			{UPDATE_LOC; return ':';};
+\[			{UPDATE_LOC; return '[';};
+\]			{UPDATE_LOC; return ']';};
+\(			{UPDATE_LOC; return '(';};
+\)			{UPDATE_LOC; return ')';};
+\n			{UPDATE_LOC; row++; return '\n';};
+\,			{UPDATE_LOC; return ',';};
+\{			{UPDATE_LOC; return '{';};
+\}			{UPDATE_LOC; return '}';};
+" "|\t			{UPDATE_LOC;};
+.			pfl_error(llocp, parserInfo, "unrecognized character");
+
 
 %%
 

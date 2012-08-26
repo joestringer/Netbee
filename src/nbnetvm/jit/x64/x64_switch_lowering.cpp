@@ -93,7 +93,9 @@ void x64SwitchHelper::emit_start_table_entry_code(uint32_t name)
 
 void x64SwitchHelper::emit_binary_end_jump(uint32_t case_value, uint32_t jt, uint32_t jf, std::string& my_name)
 {
+#ifdef _DEBUG_X64_BACKEND
 	cout << "end jump case " << case_value << "\t jt:" << jt << "\t jf:" << jf << "\n";
+#endif
 	x64_Asm_Op_Imm_To_Reg(bb.getCode(), X64_CMP, case_value, original_reg, x64_DWORD);
 	Px64Instruction node = x64_Asm_J_Label(bb.getCode(), E, jt);
 	x64_Asm_JMP_Label(bb.getCode(), jf);
@@ -109,7 +111,9 @@ void x64SwitchHelper::emit_binary_end_jump(uint32_t case_value, uint32_t jt, uin
 
 void x64SwitchHelper::emit_binary_jump(uint32_t case_value, std::string& my_name, std::string& target_name)
 {
+#ifdef _DEBUG_X64_BACKEND
 	cout << "bin jump case " << case_value << "\t jt: -" << "\t jf:" << "\n";
+#endif
 	x64_Asm_Op_Imm_To_Reg(bb.getCode(), X64_CMP, case_value, original_reg, x64_DWORD);
 	Px64Instruction node = x64_Asm_J_Label(bb.getCode(), GE, 0);
 

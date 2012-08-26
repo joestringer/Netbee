@@ -44,7 +44,7 @@ CPcapPacketDumpFile::~CPcapPacketDumpFile()
 }
 
 
-int CPcapPacketDumpFile::OpenDumpFile(const char* FileName, int CreateIndexing)
+int CPcapPacketDumpFile::OpenDumpFile(const char* FileName, bool CreateIndexing)
 {
 	m_createIndexing= CreateIndexing;
 	m_isFileNew= 0;
@@ -123,7 +123,7 @@ int CPcapPacketDumpFile::OpenDumpFile(const char* FileName, int CreateIndexing)
 }
 
 
-int CPcapPacketDumpFile::CreateDumpFile(const char* FileName, int LinkLayerType, int CreateIndexing)
+int CPcapPacketDumpFile::CreateDumpFile(const char* FileName, int LinkLayerType, bool CreateIndexing)
 {
 	m_createIndexing= CreateIndexing;
 	m_isFileNew= 1;
@@ -157,18 +157,18 @@ int CPcapPacketDumpFile::CreateDumpFile(const char* FileName, int LinkLayerType,
 
 int CPcapPacketDumpFile::CloseDumpFile()
 {
+	if (m_pcapDumpFileHandle)
+	{
+		pcap_dump_close(m_pcapDumpFileHandle);
+		m_pcapDumpFileHandle= NULL;
+	}
+
 	if (m_pcapHandle)
 	{
 //		// Using function in savefile.c instead of the one provided by the WinPcap library
 //		sf_close(m_pcapHandle);
 		pcap_close(m_pcapHandle);
 		m_pcapHandle= NULL;
-	}
-
-	if (m_pcapDumpFileHandle)
-	{
-		pcap_dump_close(m_pcapDumpFileHandle);
-		m_pcapDumpFileHandle= NULL;
 	}
 
 	if (m_createIndexing)
@@ -178,7 +178,7 @@ int CPcapPacketDumpFile::CloseDumpFile()
 }
 
 
-int CPcapPacketDumpFile::AppendPacket(const struct pcap_pkthdr* PktHeader, const unsigned char* PktData)
+int CPcapPacketDumpFile::AppendPacket(const struct pcap_pkthdr* PktHeader, const unsigned char* PktData, bool FlushData)
 {
 	if (m_isFileNew == 0)
 	{
@@ -199,6 +199,15 @@ int CPcapPacketDumpFile::AppendPacket(const struct pcap_pkthdr* PktHeader, const
 	}
 
 	pcap_dump((unsigned char *)m_pcapDumpFileHandle, PktHeader, PktData);
+
+	if (FlushData)
+	{
+		if (pcap_dump_flush(m_pcapDumpFileHandle) == -1)
+		{
+			errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "Error flushing data to file: %s.\n", pcap_geterr(m_pcapHandle));
+			return nbFAILURE;
+		}
+	}
 
 	if (m_createIndexing)
 	{

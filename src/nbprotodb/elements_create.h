@@ -115,7 +115,7 @@ struct _nbNetPDLElementBase *CreateElementChoice(const Attributes& Attributes, c
 
 int GetNumber(char *NumberBuffer, int BufferLength);
 
-char* GetXMLAttribute(const Attributes& Attributes, char* AttributeName);
+char* GetXMLAttribute(const Attributes& Attributes, const char* AttributeName);
 int AllocateCallHandle(char* CallHandleAttribute, struct _nbCallHandlerInfo **CallHandlerInfo, char* ErrBuf, int ErrBufSize);
 
 

@@ -25,7 +25,7 @@ struct DebuggingInfo
 {
 	int					DebugLevel;
 	char				*DumpHIRCodeFilename;
-	char				*DumpLIRNoOptGraphFilename;
+	char				*DumpMIRNoOptGraphFilename;
 	char				*DumpProtoGraphFilename;
 };
 #endif

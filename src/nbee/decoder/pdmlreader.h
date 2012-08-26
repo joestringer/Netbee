@@ -55,9 +55,9 @@ public:
 	static int UpdateProtoList(unsigned long *CurrentNumProto, _nbPDMLProto ***CurrentProtoList, char *ErrBuf, int ErrBufSize);
 	static int UpdateFieldsList(unsigned long *CurrentNumFields, _nbPDMLField ***CurrentProtoList, char *ErrBuf, int ErrBufSize);
 
-	static int AppendItemString(DOMNode *SourceNode, char *TagToLookFor, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize);
-	static int AppendItemString(char *SourceString, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize);
-	static int AppendItemLong(DOMNode *SourceNode, char *TagToLookFor, unsigned long *AppendAt, char *ErrBuf, int ErrBufSize);
+	static int AppendItemString(DOMNode *SourceNode, const char *TagToLookFor, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize);
+	static int AppendItemString(const char *SourceString, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize);
+	static int AppendItemLong(DOMNode *SourceNode, const char *TagToLookFor, unsigned long *AppendAt, char *ErrBuf, int ErrBufSize);
 
 private:
 

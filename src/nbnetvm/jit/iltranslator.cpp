@@ -358,7 +358,8 @@ namespace jit {
 
 	void ILTranslator::mcmpOp(uint32_t pc, basic_block_t& BB)
 	{
-		InstructionInfo instInfo = BCInfo->BCInfoArray[pc];
+          // unused
+          // InstructionInfo instInfo = BCInfo->BCInfoArray[pc];
 		MIRNode *result, *kid1, *kid2, *op1, *op2, *mask, *mask_dup;
 
 		op2 = getOperand(irStack.pop(), BB);
@@ -959,7 +960,8 @@ namespace jit {
 
 	SwitchMIRNode * ILTranslator::jumpSwitch(uint32_t pc, basic_block_t& BB)
 	{
-		InstructionInfo instInfo = BCInfo->BCInfoArray[pc];
+          // unused
+          // InstructionInfo instInfo = BCInfo->BCInfoArray[pc];
 		SwitchMIRNode *result;
 
 		result = new SwitchMIRNode(BB.getId(), BCInfo->BCInfoArray[pc].SwInfo->NumCases, getOperand(irStack.pop(), BB));

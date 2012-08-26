@@ -67,8 +67,8 @@ int SQLGetRowsCountCallbackFunc(void* rowsCount, int nColumns, char** columnValu
 	return 0;
 }
 
-
-int CreateDBTable(sqlite3* pDB,	const char* TableName, const char* ColumnNames/* column names are separated by the ',' delimiter */)
+// Note: column names are separated by the ',' delimiter
+int CreateDBTable(sqlite3* pDB,	const char* TableName, const char* ColumnNames)
 {
 char SQLCmdBuffer[SQLCOMMAND_MAX_LEN] 	= "\0";
 int SQLCmdBufferOccupancy = 0;
@@ -83,11 +83,29 @@ int RetVal						= 0;
 	fprintf(stderr, "executing sql cmd{%s}...\n", sqlCmdBuffer);
 #endif
 
+	// PRAGMA per performance
+/*	RetVal= sqlite3_exec(pDB, "PRAGMA journal_mode = OFF;", NULL, NULL, &errMsg);
+	if (RetVal)
+	{
+		fprintf(stderr, "PRAGMA journaling exec error: %s\n", errMsg);
+		sqlite3_free(errMsg);
+		return nbFAILURE;
+	}
+
+	RetVal= sqlite3_exec(pDB, "PRAGMA synchronous = OFF;", NULL, NULL, &errMsg);
+	if (RetVal)
+	{
+		fprintf(stderr, "PRAGMA syncronous write exec error: %s\n", errMsg);
+		sqlite3_free(errMsg);
+		return nbFAILURE;
+	}
+*/      
+
 	// Call the 'SQLGetColumnNamesCallbackFunc' callback function, which will return the column names defined for that table
 	RetVal= sqlite3_exec(pDB, SQLCmdBuffer, SQLGetColumnNamesCallbackFunc, CurrentColumnNames, &errMsg);
 	if (RetVal)
 	{
-		fprintf(stderr, "SQL command {%s} exec err: %s\n", SQLCmdBuffer, errMsg);
+		fprintf(stderr, "SQL command {%s} exec error: %s\n", SQLCmdBuffer, errMsg);
 		sqlite3_free(errMsg);
 		return nbFAILURE;
 	}

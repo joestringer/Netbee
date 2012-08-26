@@ -185,7 +185,7 @@ int CPxMLReader::CheckPacketListSize()
 	\return nbSUCCESS function is successful, nbFAILURE if something goes wrong.
 	In case of error, the error message can be retrieved by the GetLastError() method.
 */
-int CPxMLReader::InitializeParsForDump(char *RootXMLTag, char *InitText)
+int CPxMLReader::InitializeParsForDump(const char *RootXMLTag, const char *InitText)
 {
 	strncpy(m_rootXMLTag, RootXMLTag, sizeof(m_rootXMLTag) );
 	if (InitText)

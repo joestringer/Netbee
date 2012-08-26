@@ -25,7 +25,7 @@ OpDescr NvmOps[] =
 };
 
 
-char *IRTypeNames[] =
+const char *IRTypeNames[] =
 {
 	"",
 	"I",
@@ -37,21 +37,21 @@ char *IRTypeNames[] =
 
 bool Node::IsBoolean(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return false;
 	return (GET_OP_RTYPE(Op) == IR_TYPE_BOOL);
 }
 
 bool Node::IsInteger(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return true;
 	return (GET_OP_RTYPE(Op) == IR_TYPE_INT);
 }
 
 bool Node::IsString(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return false;
 	return (GET_OP_RTYPE(Op) == IR_TYPE_STR);
 }
@@ -59,7 +59,7 @@ bool Node::IsString(void)
 
 bool Node::IsTerOp(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return (Kids[0] != NULL && Kids[1] != NULL && Kids[2] != NULL);
 	return (GET_OP_FLAGS(Op) == IR_TEROP);
 }
@@ -67,7 +67,7 @@ bool Node::IsTerOp(void)
 
 bool Node::IsBinOp(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return (Kids[0] != NULL && Kids[1] != NULL && Kids[2] == NULL);
 	return (GET_OP_FLAGS(Op) == IR_BINOP);
 }
@@ -75,7 +75,7 @@ bool Node::IsBinOp(void)
 
 bool Node::IsUnOp(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return (Kids[0] != NULL && Kids[1] == NULL && Kids[2] == NULL);
 	return (GET_OP_FLAGS(Op) == IR_UNOP);
 }
@@ -83,7 +83,7 @@ bool Node::IsUnOp(void)
 
 bool Node::IsTerm(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return (Kids[0] == NULL && Kids[1] == NULL && Kids[2] == NULL);
 	return (GET_OP_FLAGS(Op) == IR_TERM);
 }
@@ -91,7 +91,7 @@ bool Node::IsTerm(void)
 
 bool Node::IsConst(void)
 {
-	if (Op > HIR_LAST_OP)
+	if (Op > mir_first_op)
 		return (Op == PUSH);
 	return (GET_OP(Op) == OP_CONST);
 }
@@ -107,14 +107,11 @@ uint32 Node::GetConstVal(void)
 }
 
 
+
 //!\todo put this function in a class (e.g. TreeTransform or TreeOptimize)
-
-bool ReverseCondition(Node **expr)
+bool ReverseCondition(HIRNode **expr)
 {
-	if ((*expr)->Op > HIR_LAST_OP)
-		return false;
-
-	Node *node(*expr);
+	HIRNode *node(*expr);
 
 	//if (!node->IsBoolean())
 	//	return false;
@@ -122,7 +119,7 @@ bool ReverseCondition(Node **expr)
 	if (node->Op == IR_NOTB)
 	{
 		//remove the NOT node
-		*expr = node->Kids[0];
+		*expr = static_cast<HIRNode*>(node->Kids[0]);
 		(*expr)->NRefs--;
 		node->Kids[0]=NULL;
 		delete node;
@@ -131,7 +128,7 @@ bool ReverseCondition(Node **expr)
 
 	if ((*expr)->NRefs > 0)
 		(*expr)->NRefs--;
-	node = new Node(IR_NOTB, *expr);
+	node = new HIRNode(IR_NOTB, *expr);
 	if (node == NULL)
 		throw ErrorInfo(ERR_FATAL_ERROR, "MEMORY ALLOCATION FAILURE");
 
@@ -141,8 +138,7 @@ bool ReverseCondition(Node **expr)
 	return true;
 }
 
-
-PFLMIRNode * Node::translateToPFLMIRNode()
+MIRONode * Node::translateToMIRONode()
 {
 	Symbol *newsym = NULL;
 	if(Sym)
@@ -151,7 +147,7 @@ PFLMIRNode * Node::translateToPFLMIRNode()
 	if(SymEx)
 		newsymEx = SymEx->copy();
 
-	PFLMIRNode *new_node = new PFLMIRNode(Op, newsym);
+	MIRONode *new_node = new MIRONode(Op, newsym);
 	new_node->SymEx = newsymEx;
 
 	new_node->setValue(Value);
@@ -160,16 +156,18 @@ PFLMIRNode * Node::translateToPFLMIRNode()
 	{
 		if( Kids[i] != NULL)
 		{
-			new_node->setKid(Kids[i]->translateToPFLMIRNode(), i);
+			new_node->setKid(Kids[i]->translateToMIRONode(), i);
 		}
 	}
 	return new_node;
 };
 
 
-Node *Node::Clone()
+/*************************************HIRNode***************************************************************/
+
+Node *HIRNode::Clone()
 {
-	Node *newNode = new Node(this->Op);
+	HIRNode *newNode = new HIRNode(this->hirOp);
 	newNode->Sym = this->Sym;
 	newNode->SymEx = this->SymEx;
 	
@@ -185,4 +183,26 @@ Node *Node::Clone()
 	
 	return newNode;
 }
+
+/*************************************MIRNode***************************************************************/
+
+Node *MIRNode::Clone()
+{
+	MIRNode *newNode = new MIRNode(this->mirOp);
+	newNode->Sym = this->Sym;
+	newNode->SymEx = this->SymEx;
+	
+	if (this->Kids[0])
+		newNode->Kids[0] = this->Kids[0]->Clone();
+	if (this->Kids[1])
+		newNode->Kids[1] = this->Kids[1]->Clone();
+	if (this->Kids[2])
+		newNode->Kids[2] = this->Kids[2]->Clone();
+	
+	newNode->Value = this->Value;
+	newNode->NRefs = this->NRefs;
+	
+	return newNode;
+}
+
 

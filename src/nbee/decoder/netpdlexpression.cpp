@@ -1544,12 +1544,9 @@ int RetVal;
 int CNetPDLExpression::EvaluateAssignLookupTable(struct _nbNetPDLElementAssignLookupTable *LookupTable, struct _nbPDMLField *PDMLStartField)
 {
 int RetVal;
-int TableID;
 unsigned int Value;
 unsigned char* BufferValue;
 unsigned int BufferValueSize;
-
-	TableID= (long) LookupTable->TableCustomData;
 
 	switch (LookupTable->FieldDataType)
 	{

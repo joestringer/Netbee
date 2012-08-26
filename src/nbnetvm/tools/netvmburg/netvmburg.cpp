@@ -50,7 +50,7 @@ static char *cpp_class = NULL;
 static int predefined_terms = 0;
 static int default_cost = 1;
 
-static void output (char *fmt, ...) 
+static void output (const char *fmt, ...) 
 {
 	va_list ap;
 
@@ -368,7 +368,7 @@ emit_tree_string (Tree *tree)
 }
 
 static void
-emit_rule_string (Rule *rule, char *fill)
+emit_rule_string (Rule *rule, const char *fill)
 {
 	output ("%s/* ", fill);
 	

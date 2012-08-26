@@ -224,8 +224,8 @@ namespace jit {
 			entryNode (new BBType(BBType::ENTRY_BB)),
 			exitNode (new BBType(BBType::EXIT_BB))
 	{
-		entryNode->setNode(&AddNode(entryNode));
-		exitNode->setNode(&AddNode(exitNode));
+          entryNode->setNode(&this->AddNode(entryNode));
+          exitNode->setNode(&this->AddNode(exitNode));
 
 		allBB[entryNode->getId()] = entryNode;
 		allBB[exitNode->getId()] = exitNode;

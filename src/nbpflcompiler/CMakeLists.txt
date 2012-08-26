@@ -54,7 +54,7 @@ OPTION(
 CMAKE_DEPENDENT_OPTION(
   ENABLE_PFLFRONTEND_DBGFILES
   "Enables the generation of DOT files and other files used for debug (forcefully DISABLED if profiling)"
-  ON
+  OFF
   "NOT ENABLE_PFLFRONTEND_PROFILING"
   OFF
 )
@@ -72,6 +72,7 @@ OPTION(
 	"turns on support for L7 packet filtering"
 	OFF
 	)
+
 IF(L7_SUPPORT)
 	ADD_DEFINITIONS(-DL7_SUPPORT)
 ENDIF(L7_SUPPORT)
@@ -112,7 +113,6 @@ SET(SOURCES
 	../../include/nbpflcompiler.h
 	../../include/nbpflcompiler_exports.h
 	${NETVM_COMMON_DIR}/digraph.h
-	#digraph.h
 	${NETVM_COMMON_DIR}/irnode.h
 	${NETVM_COMMON_DIR}/basicblock.h
 	${NETVM_COMMON_DIR}/cfg.h
@@ -139,7 +139,6 @@ SET(SOURCES
 	${NETVM_OPT_DIR}/deadcode_elimination_2.h
 	${NETVM_OPT_DIR}/optimization_step.h
 	defs.h
-#	digraph.h
 	dump.cpp
 	dump.h
 	errors.cpp
@@ -150,6 +149,9 @@ SET(SOURCES
 	
 	encapgraph.cpp
 	encapgraph.h
+
+	encapfsa.cpp
+	encapfsa.h
 	
 	globalinfo.cpp
 	globalinfo.h
@@ -160,8 +162,6 @@ SET(SOURCES
 	intsymboltable.h
 	ircodegen.cpp
 	ircodegen.h
-	#lircodegen.cpp
-	#lircodegen.h
 	irlowering.cpp
 	irlowering.h
 	irnoderegrenamer.cpp
@@ -176,24 +176,14 @@ SET(SOURCES
 	netpflfrontend.h
 	node_translation.h
 	node_translation.cpp
-	#optcanonic.cpp
-	#optcanonic.h
-	#optconstprop.cpp
-	#optconstprop.h
-	#optcontrolflow.cpp
-	#optcontrolflow.h
-	#optdeadcode.cpp
-	#optdeadcode.h
-	#optfold.cpp
-	#optfold.h
 	parser.cpp
 	parser.hpp
 	pdlparser.cpp
 	pdlparser.h
 	pflexpression.cpp
 	pflexpression.h
-	pflmirnode.h
-	pflmirnode.cpp
+	mironode.h
+	mironode.cpp
 	protographshaper.cpp
 	protographshaper.h
 	protographwriter.cpp
@@ -218,13 +208,27 @@ SET(SOURCES
 	pfl_trace_builder.cpp
 	tree.cpp
 	tree.h
-	#treeoptimize.cpp
-	#treeoptimize.h
 	typecheck.cpp
 	typecheck.h
 	unistd.h
 	utils.cpp
 	utils.h
+
+#SFT files:
+	./sft/sft_defs.h
+	./sft/sft_traits.hpp
+	./sft/sft_basic_iterator.hpp 
+	./sft/sft_generic_set.hpp    
+	./sft/sft.hpp
+	./sft/sft_writer.hpp
+	./sft/sft_tools.hpp
+	./sft/digraph_stlplus/containers_fixes.hpp 
+	./sft/digraph_stlplus/digraph.tpp
+	./sft/digraph_stlplus/exceptions.hpp
+	./sft/digraph_stlplus/safe_iterator.hpp
+	./sft/digraph_stlplus/digraph.hpp
+	./sft/digraph_stlplus/exceptions.cpp
+	./sft/digraph_stlplus/safe_iterator.tpp
 )
 
 
@@ -247,6 +251,8 @@ ENDIF(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 INCLUDE_DIRECTORIES(
 #Note OM: please leave the src directory in the default include directories, otherwise the fake unistd.h file required by scanner.cc will not be found on Win32
 	${NBPFLCOMPILER_SOURCE_DIR}
+	${NBPFLCOMPILER_SOURCE_DIR}/sft
+	${NBPFLCOMPILER_SOURCE_DIR}/sft/digraph_stlplus
 	${NBPFLCOMPILER_SOURCE_DIR}/../../include
 	${NBPFLCOMPILER_SOURCE_DIR}/../nbnetvm/netvm_ir
 	${NETVM_OPT_DIR}

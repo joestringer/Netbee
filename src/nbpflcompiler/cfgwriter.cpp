@@ -23,13 +23,13 @@ void CFGWriter::VisitBBEdge(PFLBasicBlock *from, PFLBasicBlock *to)
 	if (from->Kind != BB_CFG_ENTRY)
 	{
 		//CodeList *bbCode = &from->Code;
-		std::list<PFLMIRNode*> *bbCode = from->getMIRNodeCode();
+		std::list<MIRONode*> *bbCode = from->getMIRNodeCode();
 		nbASSERT(bbCode->size() > 0, "basic block code should not be empty");
-		StmtPFLMIRNode *last = dynamic_cast<StmtPFLMIRNode*>(*bbCode->rbegin());
+		StmtMIRONode *last = dynamic_cast<StmtMIRONode*>(*bbCode->rbegin());
 		assert(last != NULL && "Dynamic cast failed");
 		if (last->Kind == STMT_JUMP)
 		{
-			JumpPFLMIRNode *jump = dynamic_cast<JumpPFLMIRNode*>(last);
+			JumpMIRONode *jump = dynamic_cast<JumpMIRONode*>(last);
 			//if it's a conditional branch:
 			if (jump->FalseBranch)
 			{

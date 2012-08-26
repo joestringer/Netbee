@@ -83,7 +83,9 @@ Px64Instruction jit::x64::x64_Asm_New_Op(x64OpCodesEnum code)
 {
 	NETVM_ASSERT(OP_ONLY(code) <= X64_COMMENT, "Trying to create an invalid x64 instruction!");
 
-	VERB1(JIT_INSTR_LVL2, "Creating new X64 instruction: %s\n", x64OpDescriptions[OP_ONLY(code)].Name);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Creating new x64 instruction: %s", x64OpDescriptions[OP_ONLY(code)].Name);
+#endif
 
 	return new x64Instruction(code);
 }

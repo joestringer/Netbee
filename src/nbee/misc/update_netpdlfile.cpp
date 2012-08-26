@@ -36,7 +36,7 @@ extern char* NetPDLDataFile;
 // Function Definition
 int CheckServerResponse(char* DataBuffer, int ReadBytes, char* ErrBuf, int ErrBufSize);
 int CheckNetPDLVersion(char* ErrBuf, int ErrBufSize);
-int DownloadNetPDLFile(char* DownloadString, char** NetPDLDataBuffer, char* ErrBuf, int ErrBufSize);
+int DownloadNetPDLFile(const char* DownloadString, char** NetPDLDataBuffer, char* ErrBuf, int ErrBufSize);
 
 #ifndef WIN32
 #define strnicmp strncasecmp
@@ -63,7 +63,7 @@ int RetVal;
 }
 
 
-int DownloadNetPDLFile(char* DownloadString, char** NetPDLDataBuffer, char* ErrBuf, int ErrBufSize)
+int DownloadNetPDLFile(const char* DownloadString, char** NetPDLDataBuffer, char* ErrBuf, int ErrBufSize)
 {
 char DataBuffer[4096];
 int ClientSocket;				// keeps the socket ID for this connection

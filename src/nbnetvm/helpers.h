@@ -31,7 +31,7 @@ extern "C" {
 
 //#define errsnprintf nvmsnprintf
 
-int errsnprintf(char* buffer, int bufsize, char *format, ...);
+int errsnprintf(char* buffer, int bufsize, const char *format, ...);
 
 void *nvmAllocObject(uint32_t size, char *errbuf);
 void nvmFreeObject(void *obj);

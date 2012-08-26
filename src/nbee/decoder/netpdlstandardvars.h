@@ -61,7 +61,7 @@ public:
 
 	// All these functions are documented in base class
 	int CreateVariable(struct _nbNetPDLElementVariable* Variable);
-	int GetVariableID(char* Name, int* VariableID);
+	int GetVariableID(const char* Name, int* VariableID);
 
 	void SetVariableNumber(int VariableID, unsigned int Value);
 	void SetVariableBuffer(int VariableID, unsigned char* Value, int StartingOffset, int Size);

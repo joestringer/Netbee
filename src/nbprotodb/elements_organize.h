@@ -36,7 +36,7 @@ typedef int (*nbNetPDLElementOrganizeHandler) (struct _nbNetPDLElementBase *NetP
 
 
 // That's just a function for getting the protocol name (when we get an error)
-char* GetProtoName(struct _nbNetPDLElementBase *NetPDLElement);
+const char* GetProtoName(struct _nbNetPDLElementBase *NetPDLElement);
 
 
 int OrganizeElementGeneric(struct _nbNetPDLElementBase *NetPDLElementInfo, char *ErrBuf, int ErrBufSize);

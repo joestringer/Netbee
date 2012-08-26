@@ -13,7 +13,7 @@
 #include "dump.h"
 #include "tree.h"
 
-void NetILTraceBuilder::InvertBranch(JumpPFLMIRNode *brStmt)
+void NetILTraceBuilder::InvertBranch(JumpMIRONode *brStmt)
 {
 	nbASSERT(brStmt->FalseBranch != NULL, "jump should be a conditional branch");
 
@@ -88,16 +88,16 @@ void NetILTraceBuilder::VisitBasicBlock(BBType *bb, BBType *comingFrom)
 	if (bb->Kind != BB_CFG_ENTRY)
 	{
 		//CodeList *bbCode = &bb->Code;
-		std::list<PFLMIRNode*> bbCode = bb->getCode();
+		std::list<MIRONode*> bbCode = bb->getCode();
 		nbASSERT(bbCode.size() > 0, "basic block code should not be empty");
-		StmtPFLMIRNode *last = dynamic_cast<StmtPFLMIRNode*>(*bbCode.rbegin());
+		StmtMIRONode *last = dynamic_cast<StmtMIRONode*>(*bbCode.rbegin());
 		std::cout << "BB: " << bb->getId() << "TRACE:  Esamino il nodo: ";
 		last->printNode(std::cout, false);
 		std::cout << std::endl;
 
 		if (last->Kind == STMT_JUMP || last->Kind == STMT_JUMP_FIELD)
 		{
-			JumpPFLMIRNode *jump = dynamic_cast<JumpPFLMIRNode*>(last);
+			JumpMIRONode *jump = dynamic_cast<JumpMIRONode*>(last);
 			//if it's a conditional branch:
 			if (jump->FalseBranch)
 			{

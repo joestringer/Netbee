@@ -27,6 +27,9 @@
 #endif
 #include "arch.h"
 
+#ifdef ENABLE_NETVM_LOGGING
+#include "codetable.h"
+#endif
 
 
 #ifdef COUNTERS_PROFILING
@@ -301,12 +304,14 @@ void gen_do_switch(uint8_t  *pr_buf, int32_t *pc, uint32_t value) {
 		return nvmFAILURE; \
 	}
 
+/*
 #define INITEDMEM_CHECK(n, b) \
 	CODE_PROFILING_INITEDMEMCHECK(); \
 	if ((n+b) > initedmem_size) { \
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, "Trying to access initialised memory with an offset too big (%d > %d)\n", n, initedmem_size); \
 			return nvmINITEDMEMERR;  \
 	}
+*/
 
 #define COPROCESSOR_CHECK(copro, reg) \
 	CODE_PROFILING_COPROCHECK(); \
@@ -371,11 +376,13 @@ void gen_do_switch(uint8_t  *pr_buf, int32_t *pc, uint32_t value) {
 
 int32_t genRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHandlerState *HandlerState)
 {
-uint8_t i, j, loop, overflow;
-uint32_t stack_top;
+uint8_t i, j, loop;
+uint8_t overflow;	// Currently unused, but not sure... proabably we should take care of this when subtracting values
+//uint32_t stack_top;
 uint8_t *xbuffer, *xbufinfo, *datamem = NULL, *sharedmem, *initedmem;
 int32_t ret = nvmFAILURE;
-uint32_t utemp1, utemp2, utemp3, pidx, sharedmem_size = 0, initedmem_size;
+uint32_t utemp1, utemp2, utemp3, pidx, sharedmem_size = 0;
+//uint32_t initedmem_size;
 
 uint32_t *stack = NULL;
 uint32_t *locals = NULL;
@@ -385,8 +392,11 @@ uint32_t stacksize = 0;
 uint8_t *pr_buf;
 uint32_t pc, sp;
 uint32_t ctdPort;
+
+#ifdef RTE_PROFILE_COUNTERS
 uint32_t dopktsend=0;
 uint32_t inithandler=0;
+#endif
 
 #ifndef CODE_PROFILING
 	uint32_t ctd_port;
@@ -398,9 +408,15 @@ uint32_t inithandler=0;
 	struct timeval timebuffer;
 #endif
 
-	overflow = 0;
+        overflow = 0;
 	sp = 0;
 	pc = 0;
+
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_NETIL_INTERPRETER, " ");
+	logdata(LOG_NETIL_INTERPRETER, "Starting a new NetIL program");
+	logdata(LOG_NETIL_INTERPRETER, "----------------------------");
+#endif
 
 #ifdef USE_EXPERIMENTAL_SWITCH
 	if (!htswitches)
@@ -421,12 +437,12 @@ uint32_t inithandler=0;
 	if (HandlerState->PEState->InitedMem)
 	{
 		initedmem = HandlerState->PEState->InitedMem->Base;
-		initedmem_size = HandlerState->PEState->InitedMem->Size;
+//		initedmem_size = HandlerState->PEState->InitedMem->Size;
 	}
 	else
 	{
 		initedmem= NULL;
-		initedmem_size= 0;
+//		initedmem_size= 0;
 	}
 
 	if (HandlerState->NLocals + HandlerState->StackSize > 0)
@@ -461,8 +477,12 @@ uint32_t inithandler=0;
 	if (HandlerState->Handler->HandlerType == INIT_HANDLER)
 	{
 		/* Init segment */
-		VERB0(INTERPRETER_VERB, "--- Beginning execution of the INIT section for PE ---\n");
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_NETIL_INTERPRETER, "Beginning execution of the INIT section for PE");
+#endif
+#ifdef RTE_PROFILE_COUNTERS
 		inithandler=1;
+#endif
 		xbuffer = NULL;
 		xbufinfo = NULL;
 		pidx = -1;
@@ -473,15 +493,20 @@ uint32_t inithandler=0;
 		if (HandlerState->Handler->HandlerType == PUSH_HANDLER)
 		{
 			/* Push */
-				VERB0(INTERPRETER_VERB, "--- Beginning execution of the PUSH handler for port num of PE num ---\n");
-				xbuffer = (**exbuf).PacketBuffer;
-				xbufinfo = (**exbuf).InfoData;
-				pktlen = (**exbuf).PacketLen;
-				infolen = (**exbuf).InfoLen;
+#ifdef ENABLE_NETVM_LOGGING
+			logdata(LOG_NETIL_INTERPRETER, "Beginning execution of the PUSH handler for PE");
+#endif
+			xbuffer = (**exbuf).PacketBuffer;
+			xbufinfo = (**exbuf).InfoData;
+			pktlen = (**exbuf).PacketLen;
+			infolen = (**exbuf).InfoLen;
 		}
 		else
-		{/* Pull */
-			VERB0(INTERPRETER_VERB, "--- Beginning execution of the PULL handler for port num of PE num ---\n");
+		{
+			/* Pull */
+#ifdef ENABLE_NETVM_LOGGING
+			logdata(LOG_NETIL_INTERPRETER, "Beginning execution of the PULL handler section for PE");
+#endif
 			xbuffer = NULL;
 			xbufinfo = NULL;
 		}
@@ -514,12 +539,13 @@ uint32_t inithandler=0;
 		printf("executing instruction at pc: %u ==> %s\n", pc, nvmDumpInsn(insnBuff, 256, &insn, &line));
 #endif
 		// Exit if pc > codelen
-		if( pc > codelen) {
+		if( pc > codelen)
+		{
 			return (ret);
 		}
 
-		if (sp > 0)
-			stack_top = stack[sp-1];
+//		if (sp > 0)
+//			stack_top = stack[sp-1];
 
 		CODE_PROFILING_INSTRUCTION_COUNTER();
 
@@ -532,9 +558,14 @@ uint32_t inithandler=0;
 			// Push a constant value onto the stack
 			case PUSH:
 				NEED_STACK(0);
+// Warning: this piece of code must be placed *before* any modification to 'pc', since it uses its value
+// to get the current instruction. This warning refers to all the similar blocks in this file.
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Pushed value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,*(int32_t *)&pr_buf[pc+1]);
+#endif
 				pc++;
 				stack[sp] =  *(int32_t *)&pr_buf[pc];
-				VERB4(INTERPRETER_VERB, "%s/%d/push: %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, *(int32_t *)&pr_buf[pc], sp);
 				sp++;
 				pc+=4;
 				break;
@@ -542,6 +573,10 @@ uint32_t inithandler=0;
 			// Push two constant values onto the stack
 			  case PUSH2:
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, First loaded value= %d, Second loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, *(int32_t *)&pr_buf[pc+1], *(int32_t *)&pr_buf[pc+5]);
+#endif
 				pc++;
 				stack[sp] = *(int32_t *)&pr_buf[pc];
 				pc+=4;
@@ -555,13 +590,20 @@ uint32_t inithandler=0;
 			// Remove the top of the stack
 			case POP:
 				NEED_STACK(1);
-				VERB3(INTERPRETER_VERB, "%s/%d/pop; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				sp--;
 				pc++;
 				break;
 
 			// Remove the I top values of the stack
 			case POP_I:
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				NEED_STACK(pr_buf[pc]);
 				sp -= *(uint8_t *)&pr_buf[pc];
@@ -573,6 +615,10 @@ uint32_t inithandler=0;
 				NEED_STACK(0);
 				stack[sp] = 1;
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Pushed value= 1",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -581,6 +627,10 @@ uint32_t inithandler=0;
 				NEED_STACK(0);
 				stack[sp] = 2;
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Pushed value= 2",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -589,13 +639,22 @@ uint32_t inithandler=0;
 				NEED_STACK(0);
 				stack[sp] = 0;
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Pushed value= 0",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
+
 			// Push the constant -1 onto the stack
 			case CONST__1:
 				NEED_STACK(0);
 				stack[sp] = (uint32_t)(-1);
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Pushed value= -1",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -610,6 +669,10 @@ uint32_t inithandler=0;
 				stack[sp] = (uint32_t)(timebuffer.tv_sec);
 #endif
 				sp += 1;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -624,6 +687,10 @@ uint32_t inithandler=0;
 				stack[sp] = (uint32_t)(timebuffer.tv_usec);
 #endif
 				sp += 1;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -631,8 +698,11 @@ uint32_t inithandler=0;
 			case DUP:
 				NEED_STACK(1);
 				stack[sp] = stack[sp-1];
-				VERB3(INTERPRETER_VERB, "%s/%d/dup: %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp]);
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -642,6 +712,10 @@ uint32_t inithandler=0;
 				utemp1 = stack[sp-1];
 				stack[sp-1] = stack[sp-2];
 				stack[sp-2] = utemp1;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -649,6 +723,10 @@ uint32_t inithandler=0;
 			case IESWAP:
 				NEED_STACK(1);
 				stack[sp-1] = nvm_ntohl(stack[sp-1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -661,6 +739,10 @@ uint32_t inithandler=0;
 // 				stack[sp] = HandlerState->Handler->CodeSize;
 				stack[sp] = (**exbuf).PacketLen;
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Size of exchange buffer= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -673,8 +755,11 @@ uint32_t inithandler=0;
 				PROF_PKT_READ(stack[sp-1],1);
 				PKTMEM_CHECK(stack[sp-1] , 1 );
 				stack[sp-1] = (int32_t)xbuffer[stack[sp-1]];
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp-1]);
+#endif
 				pc++;
-
 				break;
 
 			// Load an unsigned 8bit int from the Exchange Buffer segment onto the stack after conversion to a 32bit int
@@ -684,7 +769,10 @@ uint32_t inithandler=0;
 				PROF_PKT_READ(stack[sp-1],1);
 				PKTMEM_CHECK(stack[sp-1] , 1 );
 				stack[sp-1] = (uint32_t)xbuffer[stack[sp-1]];
-				VERB4(INTERPRETER_VERB, "%s/%d/upload.16: loaded %d from exbuf; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], sp);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -693,10 +781,12 @@ uint32_t inithandler=0;
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				PROF_PKT_READ(stack[sp-1],2);
-				//debug
-				//printf("pslds: %d\n", stack[sp-1]);
 				PKTMEM_CHECK(stack[sp-1] , 2 );
 				stack[sp-1] = (int32_t)(nvm_ntohs(*(int16_t *)&xbuffer[stack[sp-1]]));
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -705,10 +795,12 @@ uint32_t inithandler=0;
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				PROF_PKT_READ(stack[sp-1],2);
-				//debug
-				//printf("psldu: %d\n", stack[sp-1]);
 				PKTMEM_CHECK(stack[sp-1] , 2 );
 				stack[sp-1] = (uint32_t)(nvm_ntohs(*(uint16_t *)&xbuffer[stack[sp-1]]));
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -718,8 +810,11 @@ uint32_t inithandler=0;
 				NEED_STACK(1);
 				PROF_PKT_READ(stack[sp-1],4);
 				PKTMEM_CHECK(stack[sp-1] , 4 );
-				//printf("SPLOAD:\nOffset = %d\nDim pkt = %d\n", stack[sp-1], pktlen);
 				stack[sp-1] = (uint32_t)(nvm_ntohl(*(uint32_t *)&xbuffer[stack[sp-1]]));
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -729,6 +824,10 @@ uint32_t inithandler=0;
 				DATAMEM_CHECK(stack[sp-1],1);
 				PROF_DATA_READ(stack[sp-1],1);
 				stack[sp-1] = (int32_t)datamem[stack[sp-1]];
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -738,7 +837,10 @@ uint32_t inithandler=0;
 				DATAMEM_CHECK(stack[sp-1], 1);
 				PROF_DATA_READ(stack[sp-1],1);
 				stack[sp-1] = (uint32_t)datamem[stack[sp-1]];
-				VERB3(INTERPRETER_VERB, "%s/%d/umload.8: loaded %d from datamem\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value: %u ",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -748,6 +850,10 @@ uint32_t inithandler=0;
 				DATAMEM_CHECK(stack[sp-1], 2);
 				PROF_DATA_READ(stack[sp-1],2);
 				stack[sp-1] = (int32_t)(*(int16_t *)&datamem[stack[sp-1]]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -757,6 +863,10 @@ uint32_t inithandler=0;
 				DATAMEM_CHECK(stack[sp-1],2);
 				PROF_DATA_READ(stack[sp-1],2);
 				stack[sp-1] = (uint32_t)(*(uint16_t *)&datamem[stack[sp-1]]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -766,7 +876,10 @@ uint32_t inithandler=0;
 				DATAMEM_CHECK(stack[sp-1],4);
 				PROF_DATA_READ(stack[sp-1],4);
 				stack[sp-1] = (uint32_t)(*(uint32_t *)&datamem[stack[sp-1]]);
-				VERB4(INTERPRETER_VERB, "%s/%d/smload.32: loaded %d from datamem; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], sp);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -775,6 +888,10 @@ uint32_t inithandler=0;
 				NEED_STACK(1);
 				SHAREDMEM_CHECK(stack[sp-1], 1);
 				stack[sp-1] = (int32_t)sharedmem[stack[sp-1]];
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -783,6 +900,10 @@ uint32_t inithandler=0;
 				NEED_STACK(1);
 				SHAREDMEM_CHECK(stack[sp-1],1);
 				stack[sp-1] = (uint32_t)sharedmem[stack[sp-1]];
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -791,6 +912,10 @@ uint32_t inithandler=0;
 				NEED_STACK(1);
 				SHAREDMEM_CHECK(stack[sp-1],2);
 				stack[sp-1] = (int32_t)(*(int16_t *)&sharedmem[stack[sp-1]]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -799,6 +924,10 @@ uint32_t inithandler=0;
 				NEED_STACK(1);
 				SHAREDMEM_CHECK(stack[sp-1],2);
 				stack[sp-1] = (uint32_t)(*(uint16_t *)&sharedmem[stack[sp-1]]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -807,6 +936,10 @@ uint32_t inithandler=0;
 				NEED_STACK(1);
 				SHAREDMEM_CHECK(stack[sp-1],4);
 				stack[sp-1] = (uint32_t)(*(uint32_t *)&sharedmem[stack[sp-1]]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -817,6 +950,10 @@ uint32_t inithandler=0;
 				NEED_STACK(1);
 				PKTMEM_CHECK(stack[sp-1] , 1 );
 				stack[sp-1] = (uint32_t)(((xbuffer[stack[sp-1]]) & 0x0f) << 2);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -827,8 +964,11 @@ uint32_t inithandler=0;
 				DATAMEM_CHECK(stack[sp-1],1);
 				PROF_DATA_WRITE(stack[sp-1],1, (uint8_t) stack[sp-2]);
 				datamem[stack[sp-1]] = (int8_t) stack[sp-2];
-				VERB5(INTERPRETER_VERB, "%s/%d/mstore.8: stored %d at datamem %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1], sp);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Stored value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -839,6 +979,10 @@ uint32_t inithandler=0;
 				PROF_DATA_WRITE(stack[sp-1],2, stack[sp-2]);
 				*(int16_t *)&datamem[stack[sp-1]] = (stack[sp-2]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Stored value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp+2]);
+#endif
 				pc++;
 				break;
 
@@ -848,8 +992,11 @@ uint32_t inithandler=0;
 				DATAMEM_CHECK(stack[sp-1],4);
 				PROF_DATA_WRITE(stack[sp-1],4, stack[sp-2]);
 				*(int32_t *)&datamem[stack[sp-1]] = (stack[sp-2]);
-				VERB5(INTERPRETER_VERB, "%s/%d/mstore.32: stored %d at datamem %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1], sp);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Stored value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -859,6 +1006,10 @@ uint32_t inithandler=0;
 				SHAREDMEM_CHECK(stack[sp-1],1);
 				sharedmem[stack[sp-1]] = (int8_t) stack[sp-2];
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -868,6 +1019,10 @@ uint32_t inithandler=0;
 				SHAREDMEM_CHECK(stack[sp-1],2);
 				*(int16_t *)&sharedmem[stack[sp-1]] =(stack[sp-2]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -877,6 +1032,10 @@ uint32_t inithandler=0;
 				SHAREDMEM_CHECK(stack[sp-1],4);
 				*(int32_t *)&sharedmem[stack[sp-1]] = (stack[sp-2]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -888,8 +1047,11 @@ uint32_t inithandler=0;
 				PKTMEM_CHECK(stack[sp-1] , 1 );
 				if (xbuffer != NULL)
 					xbuffer[stack[sp-1]] = (uint8_t) stack[sp-2];
-				VERB4(INTERPRETER_VERB, "%s/%d/pstore.8: stored %d at exbuf %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Stored value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp]);
+#endif
 				pc++;
 				break;
 
@@ -901,6 +1063,10 @@ uint32_t inithandler=0;
 				PKTMEM_CHECK(stack[sp-1] , 2 );
 				*(uint16_t *)&xbuffer[stack[sp-1]] = nvm_ntohs(stack[sp-2]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -912,6 +1078,10 @@ uint32_t inithandler=0;
 				PKTMEM_CHECK(stack[sp-1] , 4 );
 				*(uint32_t *)&xbuffer[stack[sp-1]] = nvm_ntohl(stack[sp-2]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -920,6 +1090,10 @@ uint32_t inithandler=0;
 				NEED_STACK(0);
 				stack[sp] = (uint32_t) rand();
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -930,6 +1104,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] = ((int32_t) stack[sp-2]) << stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -938,6 +1116,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] = ((int32_t) stack[sp-2]) >> stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -946,6 +1128,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] = stack[sp-2] >> stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -954,6 +1140,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] = _gen_rotl(stack[sp-2], stack[sp-1]);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -962,6 +1152,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] = _gen_rotr(stack[sp-2], stack[sp-1]);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -970,6 +1164,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] |= stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -978,6 +1176,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] &= stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -986,6 +1188,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] ^= stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -993,6 +1199,10 @@ uint32_t inithandler=0;
 			case NOT:
 				NEED_STACK(1);
 				stack[sp-1] = ~(stack[sp-1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 /*
@@ -1035,6 +1245,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] = (int32_t) (stack[sp-2] + stack[sp-1]);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1045,6 +1259,10 @@ uint32_t inithandler=0;
 					overflow = 1;
 				stack[sp-2] += (int32_t) stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1054,6 +1272,10 @@ uint32_t inithandler=0;
 				if ((stack[sp-2] += stack[sp-1]) <= stack[sp-1])
 					overflow=1;
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1062,6 +1284,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] -= stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1071,32 +1297,46 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] -= (int32_t) stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
 			// Subtraction the first value on the stack to the second one considered as unsigned 32bit int with overflow control
 			case SUBUOV:
 				NEED_STACK(2);
-				VERB4(INTERPRETER_VERB, "%s/%d/sub.u: %d - %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1]);
 				if (stack[sp-1] > stack[sp-2])
 					overflow=1;
 				stack[sp-2] -= stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, First value= %d, Second value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1], stack[sp]);
+#endif
 				pc++;
 				break;
 
 			case MOD:
 				NEED_STACK(2);
-				VERB4(INTERPRETER_VERB, "%s/%d/mode: %d MOD %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1]);
 				stack[sp-2] %= stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, First value= %d, Second value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1], stack[sp]);
+#endif
 				pc++;
 				break;
-				break;
+
 			//Negate the value of the element at the top of the stack
 			case NEG:
 				NEED_STACK(1);
 				stack[sp-1] = - (int32_t) stack[sp-1];
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1105,6 +1345,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] *= stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1114,6 +1358,10 @@ uint32_t inithandler=0;
 				NEED_STACK(2);
 				stack[sp-2] *= (int32_t) stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1123,6 +1371,10 @@ uint32_t inithandler=0;
 				//TODO if overflow=1;
 				NEED_STACK(1);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1131,6 +1383,10 @@ uint32_t inithandler=0;
 			case IINC_1:
 				NEED_STACK(1);
 				(stack[sp-1])++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1138,6 +1394,10 @@ uint32_t inithandler=0;
 			case IINC_2:
 				NEED_STACK(2);
 				(stack[sp-2])++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1145,6 +1405,10 @@ uint32_t inithandler=0;
 			case IINC_3:
 				NEED_STACK(3);
 				(stack[sp-3])++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1152,6 +1416,10 @@ uint32_t inithandler=0;
 			case IINC_4:
 				NEED_STACK(4);
 				(stack[sp-4])++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1159,6 +1427,10 @@ uint32_t inithandler=0;
 			case IDEC_1:
 				NEED_STACK(1);
 				(stack[sp-1])--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1166,6 +1438,10 @@ uint32_t inithandler=0;
 			case IDEC_2:
 				NEED_STACK(2);
 				(stack[sp-2])--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1173,6 +1449,10 @@ uint32_t inithandler=0;
 			case IDEC_3:
 				NEED_STACK(3);
 				(stack[sp-3])--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1180,6 +1460,10 @@ uint32_t inithandler=0;
 			case IDEC_4:
 				NEED_STACK(4);
 				(stack[sp-4])--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1188,30 +1472,36 @@ uint32_t inithandler=0;
 
 			case PSCANB:
 				NEED_STACK(2);
-
 				PKTMEM_CHECK(stack[sp-2] ,  1 );
-
 				stack[sp-2] = do_pscanb((**exbuf).PacketBuffer, stack[sp-2],(uint8_t)stack[sp-1], (**exbuf).PacketLen);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
 			case PSCANW:
 				NEED_STACK(2);
-
 				PKTMEM_CHECK(stack[sp-2] ,  1 );
-
 				stack[sp-2] = do_pscanw((**exbuf).PacketBuffer, stack[sp-2], (uint16_t)stack[sp-1], (**exbuf).PacketLen);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 			case PSCANDW:
 				NEED_STACK(2);
-
 				PKTMEM_CHECK(stack[sp-2] ,  1 );
-
 				stack[sp-2] = do_pscandw((**exbuf).PacketBuffer, stack[sp-2], stack[sp-1], (**exbuf).PacketLen);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1221,14 +1511,21 @@ uint32_t inithandler=0;
 			case JCMPEQ:
 				NEED_STACK(2);
 				//printf("fa la jcmpeq tra %d e%d\n",stack[sp-1],stack[sp-2]);
-				if (stack[sp-1] == stack[sp-2]) {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.eq: if %d (sp-1) == %d (sp-2): equal => jump\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
-
-
+				if (stack[sp-1] == stack[sp-2])
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Result= equal",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
-				} else {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.eq: if %d (sp-1) == %d (sp-2): not equal => go on\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
+				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Result= not equal",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				}
 				sp-=2;
 				pc+=5;
@@ -1238,13 +1535,21 @@ uint32_t inithandler=0;
 			// Branch if the first element on the stack is not equal to the second one
 			case JCMPNEQ:
 				NEED_STACK(2);
-				if (stack[sp-1] != stack[sp-2]) {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.neq: if %d (sp-1) != %d (sp-2): not equal => jump\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
-
+				if (stack[sp-1] != stack[sp-2])
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Result= not equal",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
-				} else {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.neq: if %d (sp-1) != %d (sp-2): equal => go on\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
+				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Result= equal",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				}
 				sp-=2;
 				pc+=5;
@@ -1254,64 +1559,115 @@ uint32_t inithandler=0;
 			// Branch if the second element on the stack is greater than the first one, considering both elements as unsigned int
 			case JCMPG:
 				NEED_STACK(2);
-				if (stack[sp-1] < stack[sp-2]){
+				if (stack[sp-1] < stack[sp-2])
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
 				sp-=2;
 				pc+=5;
-
 				break;
 
 			// Branch if the second element on the stack is greater than the first one, considering both elements as signed int
 			case JCMPG_S:
 				NEED_STACK(2);
-				if (((int32_t) stack[sp-1]) < ((int32_t) stack[sp-2])){
+				if (((int32_t) stack[sp-1]) < ((int32_t) stack[sp-2]))
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
 				sp-=2;
 				pc+=5;
-
 				break;
 
 			// Branch if the second element on the stack is equal to or greater than the first one, considering both elements as unsigned int
 			case JCMPGE:
 				NEED_STACK(2);
-				if (stack[sp-2] >= stack[sp-1]){
-
+				if (stack[sp-2] >= stack[sp-1])
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
 				sp-=2;
 				pc+=5;
-
 				break;
 
 			// Branch if the second element on the stack is equal to or greater than the first one, considering both elements as signed int
 			case JCMPGE_S:
 				NEED_STACK(2);
-				if (((int32_t) stack[sp-1]) <= ((int32_t) stack[sp-2])){
-
+				if (((int32_t) stack[sp-1]) <= ((int32_t) stack[sp-2]))
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
+
 				sp-=2;
 				pc+=5;
-
 				break;
 
 			// Branch if the second element on the stack is lower than the first one, considering both elements as unsigned int
 			case JCMPL:
 				NEED_STACK(2);
-				if (stack[sp-1] > stack[sp-2]) {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.l: if %d (sp-1) > %d (sp-2): not equal => jump\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
-
+				if (stack[sp-1] > stack[sp-2])
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Result= not equal",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
-				} else {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.l: if %d (sp-1) > %d (sp-2): equal => go on\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
+				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Result= equal",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				}
 				sp-=2;
 				pc+=5;
@@ -1321,71 +1677,130 @@ uint32_t inithandler=0;
 			// Branch if the second element on the stack is greater than the first one, considering both elements as signed int
 			case JCMPL_S:
 				NEED_STACK(2);
-				if (((int32_t) stack[sp-1]) > ((int32_t) stack[sp-2])){
-
+				if (((int32_t) stack[sp-1]) > ((int32_t) stack[sp-2]))
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Result= equal",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
+
 				sp-=2;
 				pc+=5;
-
 				break;
 
 			// Branch if the second element on the stack is equal to or lower than the first one, considering both elements as unsigned int
 			case JCMPLE:
 				NEED_STACK(2);
-				if (stack[sp-1] >= stack[sp-2]){
-
+				if (stack[sp-1] >= stack[sp-2])
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
+
 				sp-=2;
 				pc+=5;
-
 				break;
 
 			// Branch if the second element on the stack is equal to or lower than the first one, considering both elements as signed int
 			case JCMPLE_S:
 				NEED_STACK(2);
-				if ((int32_t) stack[sp-1] >= (int32_t) stack[sp-2]){
-
+				if ((int32_t) stack[sp-1] >= (int32_t) stack[sp-2])
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
+
 				sp-=2;
 				pc+=5;
-
 				break;
 
 			// Branch if the first element on the stack is equal to 0
 			case JEQ:
 				NEED_STACK(1);
-				if (stack[sp-1] == 0){
-
+				if (stack[sp-1] == 0)
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
 				sp--;
 				pc+=5;
-
 				break;
 
 			// Branch if the first element on the stack is not equal to 0
 			case JNE:
 				NEED_STACK(1);
-				if (stack[sp-1] != 0){
-
+				if (stack[sp-1] != 0)
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
+
 				sp--;
 				pc+=5;
-
 				break;
 
 			// Unconditional branch
 			case JUMP:
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				pc += pr_buf[pc] + 1;
 				JUMPCHECK(pc);
@@ -1394,37 +1809,51 @@ uint32_t inithandler=0;
 			// Unconditional branch (wide index)
 			case JUMPW:
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				pc += *(int32_t*)&pr_buf[pc] + 4;
 				JUMPCHECK(pc);
 				break;
 
-			//Switch - This instruction provides for multiple branch possibilities
+			// Switch - This instruction provides for multiple branch possibilities
 			case SWITCH:
 				NEED_STACK(1);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp,stack[sp-1]);
+#endif
 				pc++;
 				gen_do_switch(pr_buf, &pc, stack[sp-1]);
 				JUMPCHECK(pc);
 				sp--;
 				break;
 
-			//Call - Call a subroutine with an 8 bit offset
+			// Call - Call a subroutine with an 8 bit offset
 			case CALL:
 				NEED_STACK(0);
-
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				pc+=pr_buf[pc];
 				JUMPCHECK(pc);
 				break;
 
-			//Ret - return from subroutine
+			// Ret - return from subroutine
 			case RET:
 				NEED_STACK(0);
-				if (sp != 0) {
+				if (sp != 0)
+				{
 					errorprintf(__FILE__, __FUNCTION__, __LINE__, "The stack pointer is not zero at return time (sp = %d)\n", sp);
 					ret = nvmFAILURE;
-				} else
+				}
+				else
 					ret = nvmSUCCESS;
+
 				if (INIT_SEGMENT && locals)
 					free (locals);
 				loop = 0;
@@ -1433,7 +1862,11 @@ uint32_t inithandler=0;
 				if (dopktsend == 0 && inithandler == 0)
 					HandlerState->ProfCounters->TicksEnd= nbProfilerGetTime();
 #endif
-				VERB1(INTERPRETER_VERB, "--- End of execution (PE %s) ---\n", HandlerState->Handler->OwnerPE->Name);
+
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				return ret;
 				break;
 
@@ -1449,6 +1882,10 @@ uint32_t inithandler=0;
 				else
 					stack[sp-2] = (uint32_t) (-1);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1462,6 +1899,10 @@ uint32_t inithandler=0;
 				else
 					stack[sp-2] = (uint32_t)(-1);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1470,15 +1911,17 @@ uint32_t inithandler=0;
 				NEED_STACK(3);
 				utemp1 = stack[sp-1] & stack[sp-3];
 				utemp2 = stack[sp-2] & stack[sp-3];
-				VERB5(INTERPRETER_VERB, "%s/%d/mcmp: comparing %d to %d with mask %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2], stack[sp-3]);
 				if (utemp1 == utemp2)
 					stack[sp-3] = (int32_t) 0;
 				else if (utemp1 > utemp2)
 					stack[sp-3] = (int32_t) 1;
 				else
 					stack[sp-3] = (uint32_t)(-1);
-				VERB3(INTERPRETER_VERB, "%s/%d/mcmp: returning %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-3]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1490,16 +1933,19 @@ uint32_t inithandler=0;
 				NEED_STACK(3);
 
 				PKTMEM_CHECK(stack[sp-2] ,  stack[sp-1] );
-
 				PKTMEM_CHECK(stack[sp-3] ,  stack[sp-1] );
 
-				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) == 0){
+				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) == 0)
+				{
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
 				sp -= 3;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc +=5;
-
 				break;
 
 			// Comparison between two fields in the packet buffer. Branch if not equal
@@ -1510,13 +1956,25 @@ uint32_t inithandler=0;
 				PKTMEM_CHECK(stack[sp-2] ,  stack[sp-1] );
 				PKTMEM_CHECK(stack[sp-3] ,  stack[sp-1] );
 
-				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) != 0){
+				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) != 0)
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
+
 				sp -= 3;
 				pc +=5;
-
 				break;
 
 			// Comparison between two fields in the packet buffer. Branch if the first i lexicographically less than the second
@@ -1527,13 +1985,24 @@ uint32_t inithandler=0;
 				PKTMEM_CHECK(stack[sp-2] ,  stack[sp-1] );
 				PKTMEM_CHECK(stack[sp-3] ,  stack[sp-1] );
 
-				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) < 0){
+				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) < 0)
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
 				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+				}
 				sp -= 3;
 				pc +=5;
-
 				break;
 
 			// Comparison between two fields in the packet buffer. Branch if the first i lexicographically greater than the second
@@ -1544,9 +2013,21 @@ uint32_t inithandler=0;
 				PKTMEM_CHECK(stack[sp-2] ,  stack[sp-1] );
 				PKTMEM_CHECK(stack[sp-3] ,  stack[sp-1] );
 
-				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) > 0){
+				if (memcmp(&xbuffer[stack[sp-3]], &xbuffer[stack[sp-2]], stack[sp-1]) > 0)
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 					pc += *(int32_t*)&pr_buf[pc+1];
 					JUMPCHECK(pc + 5);
+				}
+				else
+				{
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+						nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				}
 				sp -= 3;
 				pc +=5;
@@ -1561,39 +2042,51 @@ uint32_t inithandler=0;
 			case SNDPKT:
 				HANDLERS_ONLY;
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, Port=%d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, *(uint32_t *) &pr_buf[pc]);
+#endif
 				pc++;
-				dopktsend=1;
-				VERB3(INTERPRETER_VERB, "+++ %d/%d/pkt.send: sending exchange buffer through port %d\n", HandlerState->Handler->OwnerPE->Name, pidx, *(uint32_t *) &pr_buf[pc]);
 				ret = nvmSUCCESS;
 
 #ifdef RTE_PROFILE_COUNTERS
+				dopktsend=1;
   				HandlerState->ProfCounters->TicksEnd= nbProfilerGetTime();
 				HandlerState->ProfCounters->NumFwdPkts++;
 #endif
 
-/* this code of CODE_PROFILING option should be commented 
-because you need to evaluate only the cost of the filter */
+// This code of CODE_PROFILING option should be commented because you need to
+// evaluate only the cost of the netvm program, and you don't want to call the handler
 #ifndef CODE_PROFILING
-			ctd_port = *(uint32_t *) &pr_buf[pc];
-			ret = nvmNetPacket_Send(*exbuf,ctd_port,HandlerState);
+				ctd_port = *(uint32_t *) &pr_buf[pc];
+				ret = nvmNetPacket_Send(*exbuf,ctd_port,HandlerState);
 #endif			
+				// In case you send the packet out, you do not execute any more instruction.
+				// But... does it make sense?
+				return ret;
+				break;
 
-			return ret;
-			break;
-
-			//Send a copy of the exchange buffer to a port
+			// Send a copy of the exchange buffer to a port
 			case DSNDPKT:
 				HANDLERS_ONLY;
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				nvmNetPacketSendDup (*exbuf,*(uint32_t *) &pr_buf[pc] , HandlerState);
 				pc+=4;
 				break;
 
-			//Pull an exchange buffer from a port
+			// Pull an exchange buffer from a port
 			case RCVPKT:
 				HANDLERS_ONLY;
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				ctdPort = *(uint32_t *) &pr_buf[pc];
 				nvmNetPacket_Recive(exbuf,ctdPort,HandlerState);
@@ -1607,7 +2100,7 @@ because you need to evaluate only the cost of the filter */
 				pc+=4;
 				break;
 
-			//Copy a memory buffer from data memory to Exchange Buffer
+			// Copy a memory buffer from data memory to Exchange Buffer
 			case DPMCPY:
 				HANDLERS_ONLY;
 				NEED_STACK(3);
@@ -1618,10 +2111,14 @@ because you need to evaluate only the cost of the filter */
 				PROF_PKT_WRITE(stack[sp-2] ,  stack[sp-1], NULL );
 				PROF_DATA_READ(stack[sp-3] ,  stack[sp-1] );
 
-				VERB5(INTERPRETER_VERB, "%s/%d/???: Copying %d bytes from data memory %d to exchange buffer %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-3], stack[sp-2]);
 				for (i = 0; i < stack[sp-1]; i++)
 					xbuffer[stack[sp-2] + i] = datamem[stack[sp-3] + i];
+
 				sp-=3;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1640,6 +2137,10 @@ because you need to evaluate only the cost of the filter */
 				for (i = 0; i < stack[sp-1]; i++)
 					datamem[stack[sp-2] + i] = xbuffer[stack[sp-3] + i];
 				sp-=3;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1655,6 +2156,10 @@ because you need to evaluate only the cost of the filter */
 				for (i = 0; i < stack[sp-1]; i++)
 					sharedmem[stack[sp-2] + i] = datamem[stack[sp-3] + i];
 				sp-=3;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1670,6 +2175,10 @@ because you need to evaluate only the cost of the filter */
 				for (i = 0; i < stack[sp-1]; i++)
 					datamem[stack[sp-2] + i] = sharedmem[stack[sp-3] + i];
 				sp-=3;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1686,6 +2195,10 @@ because you need to evaluate only the cost of the filter */
 				for (i = 0; i < stack[sp-1]; i++)
 					xbuffer[stack[sp-2] + i] = sharedmem[stack[sp-3] + i];
 				sp-=3;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1702,6 +2215,10 @@ because you need to evaluate only the cost of the filter */
 				for (i = 0; i < stack[sp-1]; i++)
 					sharedmem[stack[sp-2] + i] = xbuffer[stack[sp-3] + i];
 				sp-=3;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1711,15 +2228,24 @@ because you need to evaluate only the cost of the filter */
 				NEED_STACK(1);
 				*exbuf= arch_GetExbuf(HandlerState->PEState->RTEnv);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
+
 			//Delete the exchange buffer
 			case DELEXBUF:
 				HANDLERS_ONLY;
 				NEED_STACK(0);
 				arch_ReleaseExbuf(HandlerState->PEState->RTEnv, *exbuf);
-				*exbuf=NULL;
 				//TODO ho messo exbuf a null ma non ne sono affatto sicuro
+				*exbuf=NULL;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1729,6 +2255,10 @@ because you need to evaluate only the cost of the filter */
 			//Nop - no operationsroutine with a wide range
 			case NOP:
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1736,11 +2266,19 @@ because you need to evaluate only the cost of the filter */
 			case EXIT:
 				NEED_STACK(0);
 				exit(*(int32_t *)&pr_buf[pc+1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				break;
 
 			//Debug this instruction only
 			case BRKPOINT:
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1760,6 +2298,10 @@ because you need to evaluate only the cost of the filter */
 					}
 				else
 					stack[sp-1] = 0xffffffff;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1768,57 +2310,69 @@ because you need to evaluate only the cost of the filter */
 				NEED_STACK(2);
 				i = 31;
 				if ((stack[sp-1] & stack[sp-2]) != 0)
-					{
-						while (((stack[sp-1] & stack[sp-2]) & (1 << i)) == 0)
-							i--;
-						stack[sp-2] = i;
-						sp--;
-					}
+				{
+					while (((stack[sp-1] & stack[sp-2]) & (1 << i)) == 0)
+						i--;
+					stack[sp-2] = i;
+					sp--;
+				}
 				else
-					{
-						stack[sp-2] = 0xffffffff;
-						sp--;
-					}
+				{
+					stack[sp-2] = 0xffffffff;
+					sp--;
+				}
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
 			// Find the first bit set in the top values of the stack
 			case XFINDBITSET:
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				NEED_STACK(pr_buf[pc]);
 				for (j = 0; j < pr_buf[pc+1]; j++)
-					{
-						i = 31;
-						if (stack[sp-1-j] != 0)
-							{
-								while ((stack[sp-1-j] & (1 << i)) == 0)
-									i--;
-								stack[sp-1-j] = (uint32_t)i;
-							}
-						else
-							stack[sp-1] = 0xffffffff;
-					}
+				{
+					i = 31;
+					if (stack[sp-1-j] != 0)
+						{
+							while ((stack[sp-1-j] & (1 << i)) == 0)
+								i--;
+							stack[sp-1-j] = (uint32_t)i;
+						}
+					else
+						stack[sp-1] = 0xffffffff;
+				}
 				pc++;
 				break;
 
 
 			// Find the first bit set in the top values of the stack, with mask
 			case XMFINDBITSET:
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				NEED_STACK(pr_buf[pc]);
 				utemp1 = stack[sp-pr_buf[pc]];
 				for (j = 0; j < pr_buf[pc]; j++)
-					{
-						i = 31;
-						if ((stack[sp-pr_buf[pc]+j] & utemp1) != 0)
-							{
-								while (( stack[sp-pr_buf[pc]+j] & utemp1 & (1 << i)) == 0)
-									i--;
-								stack[sp-pr_buf[pc]+j-1] = (uint32_t) i;
-							}
-						else
-							stack[sp-pr_buf[pc]+j-1] = 0xffffffff;
-					}
+				{
+					i = 31;
+					if ((stack[sp-pr_buf[pc]+j] & utemp1) != 0)
+						{
+							while (( stack[sp-pr_buf[pc]+j] & utemp1 & (1 << i)) == 0)
+								i--;
+							stack[sp-pr_buf[pc]+j-1] = (uint32_t) i;
+						}
+					else
+						stack[sp-pr_buf[pc]+j-1] = 0xffffffff;
+				}
 				sp--;
 				pc++;
 				break;
@@ -1829,16 +2383,20 @@ because you need to evaluate only the cost of the filter */
 				if (stack[sp-1] == 0)
 					stack[sp-1] = 32;
 				else
-					{
-						i=31;
-						utemp1=0;
-						while (((stack[sp-1] | (_gen_rotl(0xfffffffe,i))) != 0xffffffff) & (i > 0))		//TODO: "& i > 0?!?"
-							{
-								i--;
-								utemp1++;
-							}
-						stack[sp-1] = utemp1;
-					}
+				{
+					i=31;
+					utemp1=0;
+					while (((stack[sp-1] | (_gen_rotl(0xfffffffe,i))) != 0xffffffff) & (i > 0))		//TODO: "& i > 0?!?"
+						{
+							i--;
+							utemp1++;
+						}
+					stack[sp-1] = utemp1;
+				}
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1848,6 +2406,10 @@ because you need to evaluate only the cost of the filter */
 				if (stack[sp-1] < 32)
 				stack[sp-2] |= _gen_rotl(1, stack[sp-1]);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1862,6 +2424,10 @@ because you need to evaluate only the cost of the filter */
 						stack[sp-2] |= (_gen_rotl (1, stack[sp-1]));
 				}
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1871,6 +2437,10 @@ because you need to evaluate only the cost of the filter */
 				if (stack[sp-1] < 32)
 				stack[sp-2] &= _gen_rotl(0xfffffffe, stack[sp-1]);
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1878,13 +2448,17 @@ because you need to evaluate only the cost of the filter */
 			case TESTBIT:
 				NEED_STACK(2);
 				if (stack[sp-1] < 32)
-					{
-						if ((stack[sp-2] | (_gen_rotl(0xfffffffe, stack[sp-1]))) == 0xffffffff)
-							stack[sp-2] = 1;
-						else
-							stack[sp-2] = 0;
-					}
+				{
+					if ((stack[sp-2] | (_gen_rotl(0xfffffffe, stack[sp-1]))) == 0xffffffff)
+						stack[sp-2] = 1;
+					else
+						stack[sp-2] = 0;
+				}
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1893,13 +2467,17 @@ because you need to evaluate only the cost of the filter */
 			case TESTNBIT:
 				NEED_STACK(2);
 				if (stack[sp-1] < 32)
-					{
-						if ((stack[sp-2] | (_gen_rotl(0xfffffffe, stack[sp-1]))) != 0xffffffff)
-							stack[sp-2] = 1;
-						else
-							stack[sp-2] = 0;
-					}
+				{
+					if ((stack[sp-2] | (_gen_rotl(0xfffffffe, stack[sp-1]))) != 0xffffffff)
+						stack[sp-2] = 1;
+					else
+						stack[sp-2] = 0;
+				}
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1914,8 +2492,11 @@ because you need to evaluate only the cost of the filter */
 				INFOMEM_CHECK(stack[sp-1] ,  1 );
 
 				xbufinfo[stack[sp-1]] = (uint8_t) stack[sp-2];
-				VERB5(INTERPRETER_VERB, "%s/%d/istore.8: stored %d at %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1], sp);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1929,6 +2510,10 @@ because you need to evaluate only the cost of the filter */
 
 				*(int16_t *)&xbufinfo[stack[sp-1]] = (stack[sp-2]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1942,6 +2527,10 @@ because you need to evaluate only the cost of the filter */
 
 				*(int32_t *)&xbufinfo[stack[sp-1]] = (stack[sp-2]);
 				sp -= 2;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1954,7 +2543,10 @@ because you need to evaluate only the cost of the filter */
 				INFOMEM_CHECK(stack[sp-1] ,  1 );
 
 				stack[sp-1] = (uint32_t)xbufinfo[stack[sp-1]];
-				VERB3(INTERPRETER_VERB, "%s/%d/uiload.8: loaded %u\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -1967,6 +2559,10 @@ because you need to evaluate only the cost of the filter */
 				INFOMEM_CHECK(stack[sp-1] ,  2 );
 
 				stack[sp-1] = (uint32_t)(*(uint16_t *)&xbufinfo[stack[sp-1]]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				break;
 
@@ -1979,7 +2575,10 @@ because you need to evaluate only the cost of the filter */
 
 				stack[sp-1] = (int32_t)xbufinfo[stack[sp-1]];
 				PROF_INFO_READ(stack[sp-1],1);
-				VERB3(INTERPRETER_VERB, "%s/%d/siload.8: loaded %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -1992,7 +2591,10 @@ because you need to evaluate only the cost of the filter */
 				INFOMEM_CHECK(stack[sp-1] ,  2 );
 
 				stack[sp-1] = (int32_t)(*(int16_t *)&xbufinfo[stack[sp-1]]);
-				VERB3(INTERPRETER_VERB, "%s/%d/uiload.16: loaded %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -2005,7 +2607,10 @@ because you need to evaluate only the cost of the filter */
 				INFOMEM_CHECK(stack[sp-1] ,  4 );
 
 				stack[sp-1] = (uint32_t)(*(int32_t *)&xbufinfo[stack[sp-1]]);
-				VERB3(INTERPRETER_VERB, "%s/%d/siload.32: loaded %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp-1]);
+#endif
 				pc++;
 				break;
 
@@ -2015,11 +2620,14 @@ because you need to evaluate only the cost of the filter */
 			case LOCLD:
 				NEED_STACK(0);
 				pc++;
-				utemp1 = pr_buf[pc];
+				utemp1 = *(int32_t *)&pr_buf[pc];
 				LOCALS_CHECK(utemp1);
-				stack[sp] = (uint32_t) locals[utemp1];
-				VERB4(INTERPRETER_VERB, "%s/%d/locload: loaded %d from local %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp], utemp1);
+				stack[sp] = locals[utemp1];
 				pc+=4;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Loaded value= %d, Local= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp], utemp1);
+#endif
 				sp++;
 				break;
 
@@ -2027,11 +2635,14 @@ because you need to evaluate only the cost of the filter */
 			case LOCST:
 				NEED_STACK(1);
 				pc++;
-				utemp1 = pr_buf[pc];
+				utemp1 = *(int32_t *)&pr_buf[pc];
 				LOCALS_CHECK(utemp1);
-				VERB4(INTERPRETER_VERB, "%s/%d/locstore: storing %d in local %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp - 1], utemp1);
 				locals[utemp1] = stack[sp-1];
 				sp--;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Stored value= %d, Local= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, stack[sp], utemp1);
+#endif
 				pc+=4;
 				break;
 
@@ -2041,40 +2652,52 @@ because you need to evaluate only the cost of the filter */
 				NEED_STACK(utemp1);
 				sp -= utemp1;
 				utemp2 = nvmHash((uint8_t*)&stack[sp], utemp1 * 4);
-				VERB4(INTERPRETER_VERB, "%s/%d/hash: hashed %d stack values to: %d\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp1, utemp2);
 				stack[sp] = utemp2;
 				sp++;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Num stack values= %d, Hash= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1, utemp2);
+#endif
 				pc++;
 				break;
 
 			case HASH32:
 				NEED_STACK(1);
+				utemp1 = nvmHash((uint8_t*)&stack[sp - 1], 4);
+				stack[sp-1] = utemp1;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Hash= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1);
+#endif
 				pc++;
-				utemp2 = nvmHash((uint8_t*)&stack[sp - 1], 4);
-				stack[sp-1] = utemp2;
 				break;
 
 //------------------------------------ Instructions for interaction with coprocessors ----------------------------------
 			case COPINIT:
 				NEED_STACK(0);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Coprocessor= %u, Offset= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1, utemp2);
+#endif
 				pc++;
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Offset into initedmem
 				COPROCESSOR_CHECK(utemp1, 0);			// We suppose every coprocessor has at least 1 register
-				VERB4(INTERPRETER_VERB, "%s/%d/copro.init: init coprocessor %u, offset %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp1, utemp2);
 				stack[sp] = (HandlerState->PEState->CoprocTable)[utemp1].init (&(HandlerState->PEState->CoprocTable)[utemp1], initedmem + utemp2);
 				sp++;
 				pc += 8;
 				break;
 
 			case COPIN:
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Coprocessor= %u, Register= %u, Value= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1, utemp2, utemp3);
+#endif
 				pc++;
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Coprocessor register
 				COPROCESSOR_CHECK(utemp1, utemp2);
 				(HandlerState->PEState->CoprocTable)[utemp1].read (&(HandlerState->PEState->CoprocTable)[utemp1], utemp2, &utemp3);		// Read from coprocessor
-//				utemp3 = ntohl(utemp3);
-				VERB5(INTERPRETER_VERB, "%s/%d/copro.in: read from register %u of coprocessor %u: %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp2, utemp1, utemp3);
 				stack[sp] = utemp3;
 				sp++;
 				pc += 8;
@@ -2082,80 +2705,116 @@ because you need to evaluate only the cost of the filter */
 
 			case COPOUT:
 				NEED_STACK(1);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Coprocessor= %u, Register= %u, Value= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1, utemp2, utemp3);
+#endif
 				pc++;
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Coprocessor register
 				COPROCESSOR_CHECK(utemp1, utemp2);
-//				utemp3 = htonl(stack[sp - 1]);
 				utemp3 = stack[sp - 1];
 				(HandlerState->PEState -> CoprocTable)[utemp1].write (&(HandlerState->PEState -> CoprocTable)[utemp1], utemp2, &utemp3);		// Write to coprocessor
-				VERB5(INTERPRETER_VERB, "%s/%d/copro.out: wrote to register %u of coprocessor %u: %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp2, utemp1, utemp3);
 				sp--;
 				pc += 8;
 				break;
 
 			case COPRUN:
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Coprocessor= %u, Operation= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1, utemp2);
+#endif
 				pc++;
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Coprocessor operation
 				COPROCESSOR_CHECK(utemp1, 0);
 				(HandlerState->PEState -> CoprocTable)[utemp1].invoke (&(HandlerState->PEState ->CoprocTable)[utemp1], utemp2);
-				VERB4(INTERPRETER_VERB, "%s/%d/copro.invoke: invoked operation %u on coprocessor %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp2, utemp1);
 				pc += 8;
 				break;
 
 			case COPPKTOUT:
 				HANDLERS_ONLY;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Coprocessor= %u",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1);
+#endif
 				pc++;
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				// 2nd arg momentarily unused
 				COPROCESSOR_CHECK(utemp1, 0);
 				(HandlerState->PEState -> CoprocTable)[utemp1].xbuf = *exbuf;
-				VERB1(INTERPRETER_VERB, "Exchange buffer passed to coprocessor %d\n", utemp1);
 				pc += 8;
 				break;
-			case INFOCLR:
 
+			case INFOCLR:
 				HANDLERS_ONLY;
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d",
+					nvmOpCodeTable[pr_buf[pc]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				pc++;
 				MMSET(xbufinfo,0,infolen);
 				break;
-//-------------------------------------- Instructions exclusive to the INIT segment ------------------------------------
+
+
+
+//-------------------------------------- Instructions available only in the INIT segment ------------------------------------
 			case SSMSIZE:
 				INIT_SEGMENT_ONLY;
 				NEED_STACK(0);
 				pc++;
 				utemp1 = *(uint32_t *) &pr_buf[pc];
-				if ( HandlerState->PEState->ShdMem == NULL && HandlerState->PEState->ShdMem->Size == 0) {
+				if ( HandlerState->PEState->ShdMem == NULL && HandlerState->PEState->ShdMem->Size == 0)
+				{
 					/* PE wants to use shared memory, and it is the first one making such a request.
 					   So, allocate the memory. */
-					if (utemp1 > 0) {
+					if (utemp1 > 0)
+					{
 						sharedmem_size = utemp1;
 						sharedmem = (uint8_t *) malloc (utemp1);
-						if (sharedmem == NULL) {
+						if (sharedmem == NULL)
+						{
 							errorprintf(__FILE__, __FUNCTION__, __LINE__, "%s: Error in shared memory allocation\n", HandlerState->Handler->OwnerPE->Name);
 							return nvmFAILURE;
 						}
-					} else {
+					}
+					else
+					{
 						sharedmem = NULL;
 						sharedmem_size = 0;
 					}
 					HandlerState->PEState->ShdMem = (nvmMemDescriptor *)sharedmem;
 					HandlerState->PEState->ShdMem->Size = sharedmem_size;
 					//HandlerState->PEState -> sml = sharedmem_size;
-					VERB4(INTERPRETER_VERB, "%s/%d/Allocated shared memory: %u bytes at %p\n", HandlerState->Handler->OwnerPE->Name, pidx, sharedmem_size, sharedmem);
-				} else if (utemp1 == HandlerState->PEState->ShdMem->Size) {
-					/* PE wants to use shared memory, and this has already been allocated by a previous
-					   PE. The requested size matches the allocated size. Just init needed variables. */
-					VERB3(INTERPRETER_VERB, "%s/%d/Shared memory size request OK: %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp1);
-					sharedmem = (uint8_t *) HandlerState->PEState->ShdMem;
-					sharedmem_size = HandlerState->PEState->ShdMem->Size;
-					//HandlerState->PEState -> sml = sharedmem_size;
-				} else {
-					/* PE wants to use shared memory, and this has already been allocated. Although, the
-					   requested size differs with what has been allocated. Return an error. */
-					errorprintf(__FILE__, __FUNCTION__, __LINE__, "%s: Requested shared memory size differs with previously allocated size.\n", HandlerState->Handler->OwnerPE->Name);
-					return nvmFAILURE;
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Allocated memory= %u, Pointer= %u",
+						nvmOpCodeTable[pr_buf[pc-1]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, sharedmem_size, sharedmem);
+#endif
+				}
+				else
+				{
+					if (utemp1 == HandlerState->PEState->ShdMem->Size)
+					{
+						/* PE wants to use shared memory, and this has already been allocated by a previous
+						   PE. The requested size matches the allocated size. Just init needed variables. */
+						sharedmem = (uint8_t *) HandlerState->PEState->ShdMem;
+						sharedmem_size = HandlerState->PEState->ShdMem->Size;
+#ifdef ENABLE_NETVM_LOGGING
+						logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Already allocated memory= %u",
+							nvmOpCodeTable[pr_buf[pc-1]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp, utemp1);
+#endif
+					}
+					else
+					{
+						/* PE wants to use shared memory, and this has already been allocated. Although, the
+						   requested size differs with what has been allocated. Return an error. */
+#ifdef ENABLE_NETVM_LOGGING
+						logdata(LOG_NETIL_INTERPRETER, "%s; Handler= %d, Pidx= %d, SP= %d, Failure in allocating memory",
+							nvmOpCodeTable[pr_buf[pc-1]].CodeName, HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
+						errorprintf(__FILE__, __FUNCTION__, __LINE__, "%s: Requested shared memory size differs with previously allocated size.\n", HandlerState->Handler->OwnerPE->Name);
+						return nvmFAILURE;
+					}
 				}
 				pc+=4;	/* This is always needed */
 				break;
@@ -2164,11 +2823,18 @@ because you need to evaluate only the cost of the filter */
 				//If an erroneous instruction is found simply ignore it
 				assert(1);
 				errorprintf(__FILE__, __FUNCTION__, __LINE__, "nvm %s: Unknown Opcode: %x error, doing nothing\n",HandlerState->Handler->OwnerPE->Name, pr_buf[pc]);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_NETIL_INTERPRETER, "Instruction not valid; Handler= %d, Pidx= %d, SP= %d",
+					HandlerState->Handler->OwnerPE->Name, pidx, sp);
+#endif
 				return nvmFAILURE;
 				break;
 
 		} /* End of switch() */
 	} /* End of while() */
+
+        // suppress gcc warning
+        (void) overflow;
 
 	return (ret);
 }

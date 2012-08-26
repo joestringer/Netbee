@@ -72,6 +72,8 @@ int CNetPDLDecoderUtils::FormatNetPDLField(const char *ProtoName, const char *Fi
 
 			if (NetPDLElement)
 				return FormatPDMLElement(FormattedField, FormattedFieldSize, NetPDLElement, FieldSize, FieldDumpPtr);
+			else if(strcmp(FieldName,"allfields")==0)
+				return nbSUCCESS;
 			else
 			{
 				errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "The field named '%s' cannot be found in the current NetPDL description.", FieldName);
@@ -139,6 +141,8 @@ int CNetPDLDecoderUtils::GetFastPrintingFunctionCode(const char *ProtoName, cons
 					return nbSUCCESS;
 				}
 			}
+			else if(strcmp(FieldName,"allfields")==0)
+				return nbSUCCESS;
 			else
 			{
 				errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "The field named '%s' cannot be found in the current NetPDL description.", FieldName);
@@ -401,6 +405,8 @@ int CNetPDLDecoderUtils::GetHexValueNetPDLField(const char *ProtoName, const cha
 			{
 				return (FormatBinDumpElement(FormattedField, NetPDLElement, (char *) FieldHexValue, FieldHexSize, BinaryEncoding));
 			}
+			else if(strcmp(FieldName,"allfields")==0)
+				return nbSUCCESS;
 
 			errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "The field named '%s' cannot be found in the current NetPDL description.", FieldName);
 			return nbFAILURE;

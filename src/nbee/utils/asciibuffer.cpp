@@ -178,7 +178,7 @@ unsigned long PointerToString;
 	\return A pointer to the appended string, NULL if some error occurred.
 	In case of error, the error message can be retrieved by the GetLastError() method.
 */
-char *CAsciiBuffer::Store(char *SourceString)
+char *CAsciiBuffer::Store(const char *SourceString)
 {
 unsigned long PointerToString;
 unsigned long Count;
@@ -298,7 +298,7 @@ unsigned long Count;
 	the resulting string.
 	In case of error, the error message can be retrieved by the GetLastError() method.
 */
-int CAsciiBuffer::Append(char *SourceString)
+int CAsciiBuffer::Append(const char *SourceString)
 {
 int WrittenBytes;
 
@@ -349,7 +349,7 @@ int WrittenBytes;
 	the resulting string.
 	In case of error, the error message can be retrieved by the GetLastError() method.
 */
-int CAsciiBuffer::Append(char *SourceString, int NumberofChars)
+int CAsciiBuffer::Append(const char *SourceString, int NumberofChars)
 {
 int WrittenBytes;
 
@@ -399,7 +399,7 @@ int WrittenBytes;
 	the resulting string.
 	In case of error, the error message can be retrieved by the GetLastError() method.
 */
-int CAsciiBuffer::AppendFormatted(char *Format, ...)
+int CAsciiBuffer::AppendFormatted(const char *Format, ...)
 {
 int WrittenBytes;
 va_list Args;

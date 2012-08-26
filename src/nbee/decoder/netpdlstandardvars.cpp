@@ -288,7 +288,7 @@ void CNetPDLStandardVars::DoGarbageCollection(int TimestampSec)
 
 
 // Documented in base class
-int CNetPDLStandardVars::GetVariableID(char* Name, int* VariableID)
+int CNetPDLStandardVars::GetVariableID(const char* Name, int* VariableID)
 {
 	for (int i= 0; i < m_currNumVariables; i++)
 	{

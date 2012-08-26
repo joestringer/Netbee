@@ -38,13 +38,19 @@
 #endif
 
 #ifdef ENABLE_SQLITE3
-#define SQLITE3_RELATED_ARGS \
+#define SQLITE3_RELATED_FMT \
 " -sqldb databasefilename                                                       \n" \
-"        Name of the database file where the packets will be dumped.            \n" \
-"        Will switch to quiet mode (no packets' output on screen).              \n" \
+"        Name of the database file where the extracted fields will be dumped.   \n" \
+"        This switch the tool to quiet mode (no packets' output on screen).     \n" \
+"        Please note that for performance reasons the sqlite database will have \n" \
+"        both journaling and syncronous writes disabled. So, you may lose some  \n" \
+"        data in case something goes wrong (e.g., disk failure, etc.), but this \n" \
+"        guarantees the best thoughput, which is what matters here.             \n"
+
+#define SQLITE3_RELATED_OPTS \
 " -sqltable tablename                                                           \n" \
 "        Name of the table in database to dump into.                            \n" \
-"        Should be used with -sqldb option; if not provided,                    \n" \
+"        Should be used with -sqldb format specifier; if not provided,          \n" \
 "        then the default value 'DefaultDump' will be used.                     \n" \
 " -sqltransize transaction_size                                                 \n" \
 "        Number of records that have to be aggregated within a single           \n" \
@@ -54,17 +60,14 @@
 "        are used (each 'insert' is atomic); a reasonable value is about        \n" \
 "        20000 insertions per transaction.                                      \n"
 
-#else
-#define SQLITE3_RELATED_ARGS
-#endif
-
-#ifdef ENABLE_SQLITE3
 #define SQLITE3_RELATED_ARGS2 \
 "        This option rotates SQL databases as well, following the same rules.   \n"
+
 #else
+#define SQLITE3_RELATED_FMT
+#define SQLITE3_RELATED_OPTS
 #define SQLITE3_RELATED_ARGS2
 #endif
-
 
 // Global variable for configuration
 ConfigParams_t ConfigParams;
@@ -80,7 +83,18 @@ void Usage()
 {
 char string[]= \
 	"\nUsage:\n"	\
-	"  nbextractor [options] extractstring\n\n"	\
+	"  nbextractor [format specifier] [options] extractstring\n\n"	\
+	"The format specifier is at most one among:\n                                   \n" \
+	" -cp                                                                           \n" \
+	"        Use compact printing (one line per packet).                            \n" \
+	" -scp                                                                          \n" \
+	"        Use super-compact printing (one line per packet, no other data).       \n" \
+	" -scpn                                                                         \n" \
+	"        Use super-compact printing, but with the packet number.                \n" \
+	" -scpt                                                                         \n" \
+	"        Use super-compact printing, but with the timestamp.                    \n" \
+	SQLITE3_RELATED_FMT \
+	"                                                                               \n" \
 	"Options:\n                                                                     \n" \
 	" -h                                                                            \n" \
 	"        Print this help.                                                       \n" \
@@ -98,15 +112,7 @@ char string[]= \
 	"        on). Valid only for live captures.                                     \n" \
 	" -c n_packets                                                                  \n" \
 	"        Capture only n_packets, then exit.                                     \n" \
-	" -cp                                                                           \n" \
-	"        Use compact printing (one line per packet).                            \n" \
-	" -scp                                                                          \n" \
-	"        Use super-compact printing (one line per packet, no other data).       \n" \
-	" -scpn                                                                         \n" \
-	"        Use super-compact printing, but with the packet number.                \n" \
-	" -scpt                                                                         \n" \
-	"        Use super-compact printing, but with the timestamp.                    \n" \
-    SQLITE3_RELATED_ARGS \
+	SQLITE3_RELATED_OPTS \
 	" -anonip filename argument_list                                                \n" \
 	"        'filename' is the name of the configuration file containing            \n" \
 	"        the IP address ranges that should be anonymized.                       \n" \
@@ -129,7 +135,7 @@ char string[]= \
 	" -C number_of_packets                                                          \n" \
 	"        Change the file in which results are saved every 'number_of_packets'.  \n" \
 	"        This option is active only when the '-w' switch is used.               \n" \
-  SQLITE3_RELATED_ARGS2 \
+	SQLITE3_RELATED_ARGS2 \
 	" -jit                                                                          \n" \
 	"        Make NetVM to use the native code on the current platform instead of   \n" \
 	"        NetIL code; by default the NetIL code is used (for safety reasons).    \n" \
@@ -263,7 +269,7 @@ int CurrentItem;
 		{
 			if (ConfigParams.PrintingMode != DEFAULT)
 			{
-				printf("Error with output specifier '-cp': another format specifier has already been specified.\n");
+				printf("Error with format specifier '-cp': another format specifier has already been specified.\n");
 				return nbFAILURE;
 			}
 			ConfigParams.PrintingMode= CP;
@@ -275,7 +281,7 @@ int CurrentItem;
 		{
 			if (ConfigParams.PrintingMode != DEFAULT)
 			{
-				printf("Error with output specifier '-scp': another format specifier has already been specified.\n");
+				printf("Error with format specifier '-scp': another format specifier has already been specified.\n");
 				return nbFAILURE;
 			}
 			ConfigParams.PrintingMode= SCP;
@@ -287,7 +293,7 @@ int CurrentItem;
 		{
 			if (ConfigParams.PrintingMode != DEFAULT)
 			{
-				printf("Error with output specifier '-scpt': another format specifier has already been specified.\n");
+				printf("Error with format specifier '-scpt': another format specifier has already been specified.\n");
 				return nbFAILURE;
 			}
 			ConfigParams.PrintingMode= SCPT;
@@ -299,7 +305,7 @@ int CurrentItem;
 		{
 			if (ConfigParams.PrintingMode != DEFAULT)
 			{
-				printf("Error with output specifier '-scpn': another format specifier has already been specified.\n");
+				printf("Error with format specifier '-scpn': another format specifier has already been specified.\n");
 				return nbFAILURE;
 			}
 			ConfigParams.PrintingMode= SCPN;
@@ -312,7 +318,7 @@ int CurrentItem;
 		{
 			if (ConfigParams.PrintingMode != DEFAULT)
 			{
-				printf("Error with output specifier '-sqldb': another format specifier has already been specified.\n");
+				printf("Error with format specifier '-sqldb': another format specifier has already been specified.\n");
 				return nbFAILURE;
 			}
 			ConfigParams.PrintingMode= SQLITE3;

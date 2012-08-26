@@ -9,15 +9,14 @@
 
 #include "defs.h"
 #include "symbols.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include <stdio.h>
-
-
+			   //the last HIR opcode is HIR_LAST_OP and it is defined in irops.h
 
 struct OpDescr
 {
-	char*		Sym;
-	char*		Name;
+	const char*		Sym;
+	const char*		Name;
 };
 
 
@@ -55,12 +54,20 @@ enum IRTypeAliases
 
 
 
-enum IROpcodes
+enum HIROpcodes
 {
-#define IR_OPCODE(code, sym, name, nKids, nSyms, op, flags, optypes, rtypes,  description) code = (op << 8) + (flags<<4) + (rtypes<<2) + optypes,
-	#include "irops.h"
-#undef IR_OPCODE
+	hir_first_op = 0, //this is the uint16 value for the first HIR opcode
+			  //you cannot use it in the hir code...
 
+#define IR_OPCODE(code, sym, name, nKids, nSyms, op, flags, optypes, rtypes,  description) code = (op << 8) + (flags<<4) + (rtypes<<2) + optypes,
+	#include "irops.h" 
+#undef IR_OPCODE
+};
+
+enum MIROpcodes
+{
+	mir_first_op = 14000, //this is the uint16 value for the first MIR opcode
+			  //you cannot use it in the mir code...	
 #define nvmOPCODE(id, name, pars, code, consts, desc) id,
 	#include "../nbnetvm/opcodes.txt"
 #undef nvmOPCODE
@@ -100,18 +107,13 @@ Opcode Details:
 
 extern OpDescr OpDescriptions[];
 extern OpDescr NvmOps[];
-extern char *IRTypeNames[];
+extern const char *IRTypeNames[];
 
 struct Node
 {
-	uint16		Op;
-	Symbol		*Sym;
-	Symbol		*SymEx;
-	Node		*Kids[3];
-	uint32		Value;
-	uint32		NRefs;
+friend struct StmtBase;
 
-
+protected:
 	Node(uint16 op)
 		:Op(op), Sym(0), SymEx(0), Value(0), NRefs(0)
 	{
@@ -122,8 +124,8 @@ struct Node
 
 
 	//!\Constructor for leaf nodes
-	Node(uint16 op, Symbol *symbol, uint32 value = 0, Symbol *symEx = 0/*,  IRType resType, IRType opType*/)
-		:Op(op), Sym(symbol), SymEx(symEx), Value(value), NRefs(0)/*, ResType(resType), OpType(opType)*/
+	Node(uint16 op, Symbol *symbol, uint32 value = 0, Symbol *symEx = 0)
+		:Op(op), Sym(symbol), SymEx(symEx), Value(value), NRefs(0)
 	{
 		Kids[0] = NULL;
 		Kids[1] = NULL;
@@ -131,7 +133,7 @@ struct Node
 	}
 
 	Node(uint16 op, uint32 value)
-		:Op(op), Sym(0), SymEx(0), Value(value), NRefs(0)/*, ResType(IR_TYPE_INT), OpType(IR_TYPE_INT)*/
+		:Op(op), Sym(0), SymEx(0), Value(value), NRefs(0)
 	{
 		Kids[0] = NULL;
 		Kids[1] = NULL;
@@ -139,8 +141,8 @@ struct Node
 	}
 
 	//!\Constructor for unary operators
-	Node(uint16 op, Node	*kidNode, Symbol *sym = 0, uint32 value = 0/*, IRType resType = IR_TYPE_INT, IRType opType = IR_TYPE_INT*/)
-		:Op(op), Sym(sym), SymEx(0), Value(value), NRefs(0)/*, ResType(resType), OpType(opType)*/
+	Node(uint16 op, Node	*kidNode, Symbol *sym = 0, uint32 value = 0)
+		:Op(op), Sym(sym), SymEx(0), Value(value), NRefs(0)
 	{
 		if (kidNode)
 		{
@@ -153,10 +155,10 @@ struct Node
 	}
 
 	//!\Constructor for binary operators
-	Node(uint16 op, Node	*kid1, Node *kid2/*,  IRType resType, IRType opType*/)
-		:Op(op), Sym(0), SymEx(0), Value(0), NRefs(0)/*, ResType(resType), OpType(opType)*/
+	Node(uint16 op, Node	*kid1, Node *kid2)
+		:Op(op), Sym(0), SymEx(0), Value(0), NRefs(0)
 	{
-		if (kid1)
+		if (kid1)	
 		{
 			nbASSERT(kid1->NRefs == 0, "DAGs NOT ALLOWED INSIDE THE PFL IR");
 			kid1->NRefs++;
@@ -172,8 +174,8 @@ struct Node
 	}
 
 	//!\Constructor for references
-	Node(uint16 op, Symbol *label, Node *kid1, Node *kid2/*,  IRType resType, IRType opType*/)
-		:Op(op), Sym(label), SymEx(0), Value(0), NRefs(0)/*, ResType(resType), OpType(opType)*/
+	Node(uint16 op, Symbol *label, Node *kid1, Node *kid2)
+		:Op(op), Sym(label), SymEx(0), Value(0), NRefs(0)
 	{
 		if (kid1)
 		{
@@ -181,7 +183,7 @@ struct Node
 			kid1->NRefs++;
 		}
 		if (kid2)
-		{
+		{	
 			nbASSERT(kid2->NRefs == 0, "DAGs NOT ALLOWED INSIDE THE PFL IR");
 			kid2->NRefs++;
 		}
@@ -191,8 +193,8 @@ struct Node
 	}
 
 	//!\Constructor for ternary operators
-	Node(uint16 op, Node	*kid1, Node *kid2, Node *kid3/*,  IRType resType, IRType opType*/)
-		:Op(op), Sym(0), SymEx(0), Value(0), NRefs(0)/*, ResType(resType), OpType(opType)*/
+	Node(uint16 op, Node	*kid1, Node *kid2, Node *kid3)
+		:Op(op), Sym(0), SymEx(0), Value(0), NRefs(0)
 	{
 		if (kid1)
 		{
@@ -215,8 +217,8 @@ struct Node
 	}
 
 	//!\Constructor for references
-	Node(uint16 op, Symbol *label, Node *kid1, Node *kid2, Node *kid3/*,  IRType resType, IRType opType*/)
-		:Op(op), Sym(label), SymEx(0), Value(0), NRefs(0)/*, ResType(resType), OpType(opType)*/
+	Node(uint16 op, Symbol *label, Node *kid1, Node *kid2, Node *kid3)
+		:Op(op), Sym(label), SymEx(0), Value(0), NRefs(0)
 	{
 		if (kid1)
 		{
@@ -238,25 +240,6 @@ struct Node
 		Kids[2] = kid3;
 	}
 
-
-	~Node()
-	{
-		if (Kids[0])
-		{
-			delete(Kids[0]);
-			Kids[0] = NULL;
-		}
-		if (Kids[1])
-		{
-			delete(Kids[1]);
-			Kids[1] = NULL;
-		}
-		if (Kids[2])
-		{
-			delete(Kids[2]);
-			Kids[2] = NULL;
-		}
-	}
 
 	void SwapChilds(void)
 	{
@@ -295,9 +278,15 @@ struct Node
 	{
 		Kids[2] = child;
 	}
-
 	
 
+public:	
+	uint16		Op;
+	Symbol		*Sym;
+	Symbol		*SymEx;
+	Node		*Kids[3];
+	uint32		Value;
+	uint32		NRefs;
 
 	bool IsBoolean(void);
 	bool IsString(void);
@@ -308,16 +297,278 @@ struct Node
 	bool IsTerm(void);
 	//bool IsStmt(void);
 	bool IsConst(void);
-
+	
 	uint32 GetConstVal(void);
 	
-	Node *Clone();
-
-	//***********************************************
-	PFLMIRNode * translateToPFLMIRNode();
-
+	MIRONode * translateToMIRONode(); 
+	
+	virtual Node *Clone()=0;
+	
+	virtual ~Node() {
+		if (Kids[0])
+		{
+			delete(Kids[0]);
+			Kids[0] = NULL;
+		}
+		if (Kids[1])
+		{
+			delete(Kids[1]);
+			Kids[1] = NULL;
+		}
+		if (Kids[2])
+		{
+			delete(Kids[2]);
+			Kids[2] = NULL;
+		}
+	
+	
+	}
+	
+	
 };
 
 
-bool ReverseCondition(Node **expr);
+/*************************************************HIRNode****************************************************/
 
+//this struct rappresent a HIR Node
+struct HIRNode: public Node
+{
+friend class IRCodeGen;
+friend class HIRCodeGen;
+friend bool ReverseCondition(HIRNode **expr);
+	
+protected:
+
+	HIRNode(HIROpcodes op)
+		:Node(op){
+			hirOp = op;
+		}
+		
+	//!\Constructor for leaf nodes
+	HIRNode(HIROpcodes op, Symbol *symbol, uint32 value = 0, Symbol *symEx = 0)
+		:Node(op,symbol,value,symEx) {
+			hirOp = op;
+		}
+
+	HIRNode(HIROpcodes op, uint32 value)
+		:Node(op,value) {
+			hirOp = op;
+		}
+
+	//!\Constructor for unary operators
+	HIRNode(HIROpcodes op, HIRNode	*kidNode, Symbol *sym = 0, uint32 value = 0)
+		:Node(op, kidNode,sym,value){
+			hirOp = op;
+		}
+
+	//!\Constructor for binary operators
+	HIRNode(HIROpcodes op, HIRNode	*kid1, HIRNode *kid2)
+		:Node(op, kid1, kid2) {
+			hirOp = op;
+		}
+
+	//!\Constructor for references
+	HIRNode(HIROpcodes op, Symbol *label, HIRNode *kid1, HIRNode *kid2)
+		:Node(op, label, kid1, kid2) {
+			hirOp = op;
+		}
+
+	//!\Constructor for ternary operators
+	HIRNode(HIROpcodes op, HIRNode	*kid1, HIRNode *kid2, HIRNode *kid3)
+		:Node(op, kid1, kid2, kid3) {
+			hirOp = op;
+		}
+
+	//!\Constructor for references
+	HIRNode(HIROpcodes op, Symbol *label, HIRNode *kid1, HIRNode *kid2, HIRNode *kid3)
+		:Node(op, label, kid1,kid2, kid3) {
+			hirOp = op;
+		}
+
+
+	/*~HIRNode() 
+	{
+		if (Kids[0])
+		{
+			delete(Kids[0]);
+			Kids[0] = NULL;
+		}
+		if (Kids[1])
+		{
+			delete(Kids[1]);
+			Kids[1] = NULL;
+		}
+		if (Kids[2])
+		{
+			delete(Kids[2]);
+			Kids[2] = NULL;
+		}
+	}
+*/
+public:
+
+	HIROpcodes hirOp;
+
+	void SwapChilds(void)
+	{
+		Node::SwapChilds();
+	}
+
+
+	HIRNode *GetLeftChild(void)
+	{
+		return static_cast<HIRNode*>(Node::GetLeftChild());
+
+	}
+
+	HIRNode *GetRightChild(void)
+	{
+		return static_cast<HIRNode*>(Node::GetRightChild());
+	}
+
+	HIRNode *GetThirdChild(void)
+	{
+		return static_cast<HIRNode*>(Node::GetThirdChild());
+	}
+
+	void SetLeftChild(HIRNode *child)
+	{
+		Node::SetLeftChild(child);
+	}
+
+	void SetRightChild(HIRNode *child)
+	{
+		Node::SetRightChild(child);
+	}
+
+	void SetThirdChild(HIRNode *child)
+	{
+		Node::SetThirdChild(child);
+	}
+
+	
+	Node *Clone();
+
+};
+
+bool ReverseCondition(HIRNode **expr); 
+
+/*************************************************MIRNode****************************************************/
+
+//this struct rappresent a MIR Node
+struct MIRNode: public Node
+{
+friend class IRCodeGen;
+friend class MIRCodeGen;
+
+protected:
+	MIRNode(MIROpcodes op)
+		:Node(op){
+			mirOp = op;
+		}
+		
+	//!\Constructor for leaf nodes
+	MIRNode(MIROpcodes op, Symbol *symbol, uint32 value = 0, Symbol *symEx = 0)
+		:Node(op,symbol,value,symEx) {
+			mirOp = op;
+		}
+
+	MIRNode(MIROpcodes op, uint32 value)
+		:Node(op,value) {
+			mirOp = op;
+		}
+
+	//!\Constructor for unary operators
+	MIRNode(MIROpcodes op, MIRNode	*kidNode, Symbol *sym = 0, uint32 value = 0)
+		:Node(op, kidNode,sym,value){
+			mirOp = op;
+		}
+
+	//!\Constructor for binary operators
+	MIRNode(MIROpcodes op, MIRNode	*kid1, MIRNode *kid2)
+		:Node(op, kid1, kid2) {
+			mirOp = op;
+		}
+
+	//!\Constructor for references
+	MIRNode(MIROpcodes op, Symbol *label, MIRNode *kid1, MIRNode *kid2)
+		:Node(op, label, kid1, kid2) {
+			mirOp = op;
+		}
+
+	//!\Constructor for ternary operators
+	MIRNode(MIROpcodes op, MIRNode	*kid1, MIRNode *kid2, MIRNode *kid3)
+		:Node(op, kid1, kid2, kid3) {
+			mirOp = op;
+		}
+
+	//!\Constructor for references
+	MIRNode(MIROpcodes op, Symbol *label, MIRNode *kid1, MIRNode *kid2, MIRNode *kid3)
+		:Node(op, label, kid1,kid2, kid3) {
+			mirOp = op;
+		}
+
+
+/*	~MIRNode() 
+	{
+		if (Kids[0])
+		{
+			delete(Kids[0]);
+			Kids[0] = NULL;
+		}
+		if (Kids[1])
+		{
+			delete(Kids[1]);
+			Kids[1] = NULL;
+		}
+		if (Kids[2])
+		{
+			delete(Kids[2]);
+			Kids[2] = NULL;
+		}
+	}
+*/
+public:
+	MIROpcodes mirOp;
+	
+	void SwapChilds(void)
+	{
+		Node::SwapChilds();
+	}
+
+
+	MIRNode *GetLeftChild(void)
+	{
+		return static_cast<MIRNode*>(Node::GetLeftChild());
+	}
+
+	MIRNode *GetRightChild(void)
+	{
+		return static_cast<MIRNode*>(Node::GetRightChild());
+	}
+
+	MIRNode *GetThirdChild(void)
+	{
+		return static_cast<MIRNode*>(Node::GetThirdChild());
+	}
+
+	void SetLeftChild(MIRNode *child)
+	{
+		Node::SetLeftChild(child);
+	}
+
+	void SetRightChild(MIRNode *child)
+	{
+		Node::SetRightChild(child);
+	}
+
+	void SetThirdChild(MIRNode *child)
+	{
+		Node::SetThirdChild(child);
+	}
+
+
+	
+	Node *Clone();
+
+};

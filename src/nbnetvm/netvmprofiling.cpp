@@ -49,8 +49,8 @@ int RetVal;
 
 
 void ProfilerProcessData()
-{
-int RetVal;
+{	
+	int RetVal;
 
 	RetVal= NetVMProfiler->ProcessProfilerData();
 

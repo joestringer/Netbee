@@ -1,7 +1,7 @@
 #include "reassociation_fixer.h"
 #include "registers.h"
 #include "basicblock.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include "tree.h"
 
 
@@ -9,11 +9,11 @@ ReassociationFixer::ReassociationFixer(PFLCFG &cfg): _cfg(cfg) {};
 
 void ReassociationFixer::VisitBasicBlock(PFLBasicBlock *bb, PFLBasicBlock *from)
 {
-	typedef PFLMIRNode IRType;
+	typedef MIRONode IRType;
 	typedef IRType::IRNodeIterator it_t;
 	typedef list<IRType*>::iterator l_it_t;
 	typedef PFLBasicBlock BBType;
-	typedef PFLMIRNode::RegType RegType;
+	typedef MIRONode::RegType RegType;
 	typedef map<RegType, IRType*> map_t;
 	typedef set<RegType>::iterator s_it;
 
@@ -70,8 +70,8 @@ void ReassociationFixer::VisitBasicBlock(PFLBasicBlock *bb, PFLBasicBlock *from)
 							RegType new_reg = RegType::get_new(2);
 							RegType def_reg = kid->getDefReg();
 
-							IRType *str = new PFLMIRNode(LOCST, kid->copy(), new SymbolTemp(kid->getDefReg()));
-							GenPFLMIRNode *stmt = new GenPFLMIRNode(str);
+							IRType *str = new MIRONode(LOCST, kid->copy(), new SymbolTemp(kid->getDefReg()));
+							GenMIRONode *stmt = new GenMIRONode(str);
 							codelist.insert(k, stmt);
 							str->getKid(0)->setDefReg(new_reg);
 
@@ -79,7 +79,7 @@ void ReassociationFixer::VisitBasicBlock(PFLBasicBlock *bb, PFLBasicBlock *from)
 							//stmt->printNode(cout, true);
 							//cout << endl;
 
-							IRType *lclod = new PFLMIRNode(LOCLD, new SymbolTemp(def_reg));
+							IRType *lclod = new MIRONode(LOCLD, new SymbolTemp(def_reg));
 							locUses.erase(s);
 							(*j)->setKid(lclod, n);
 						}

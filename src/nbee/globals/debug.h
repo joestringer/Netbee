@@ -51,113 +51,6 @@ extern "C" {
 #endif
 
 
-
-#define FREE_LIST_MON_VERB	2
-#define INTERPRETER_VERB	4
-#define BYTECODE_VERB		8
-
-#if  defined(DEBUG_LEVEL)
-#define VERB0(LEVEL, OUTSTR)  \
-{\
-	FILE *fp;\
-	if ((LEVEL) <= DEBUG_LEVEL)\
-	{\
-		fp=fopen("log.txt", "a+");\
-		if (fp)\
-		{\
-			fprintf(fp,(OUTSTR));\
-			fclose(fp);\
-		}\
-	}\
-}
-
-#define VERB1(LEVEL, OUTSTR, PARM1)  \
-{\
-	FILE *fp;\
-	if ((LEVEL) <= DEBUG_LEVEL)\
-	{\
-		fp=fopen("log.txt", "a+");\
-		if (fp)\
-		{\
-			fprintf(fp,(OUTSTR),(PARM1));\
-			fclose(fp);\
-		}\
-	}\
-}
-
-#define VERB2(LEVEL, OUTSTR, PARM1, PARM2)  \
-{\
-	FILE *fp;\
-	if ((LEVEL) <= DEBUG_LEVEL)\
-	{\
-		fp=fopen("log.txt", "a+");\
-		if (fp)\
-		{\
-			fprintf(fp,(OUTSTR), (PARM1), (PARM2));\
-			fclose(fp);\
-		}\
-	}\
-}
-
-
-
-#define VERB3(LEVEL, OUTSTR, PARM1, PARM2, PARM3)  \
-{\
-	FILE *fp;\
-	if ((LEVEL) <= DEBUG_LEVEL)\
-	{\
-		fp=fopen("log.txt", "a+");\
-		if (fp)\
-		{\
-			fprintf(fp,(OUTSTR), (PARM1), (PARM2), (PARM3));\
-			fclose(fp);\
-		}\
-	}\
-}
-
-
-#define VERB4(LEVEL, OUTSTR, PARM1, PARM2, PARM3, PARM4)  \
-{\
-	FILE *fp;\
-	if ((LEVEL) <= DEBUG_LEVEL)\
-	{\
-		fp=fopen("log.txt", "a+");\
-		if (fp)\
-		{\
-			fprintf(fp, (OUTSTR), (PARM1), (PARM2), (PARM3), (PARM4));\
-			fclose(fp);\
-		}\
-	}\
-}
-
-
-#define VERB5(LEVEL, OUTSTR, PARM1, PARM2, PARM3, PARM4, PARM5)  \
-{\
-	FILE *fp;\
-	if ((LEVEL) <= DEBUG_LEVEL)\
-	{\
-		fp=fopen("log.txt", "a+");\
-		if(fp)\
-		{\
-			fprintf(fp, (OUTSTR), (PARM1), (PARM2), (PARM3), (PARM4), (PARM5));\
-			fclose(fp);\
-		}\
-	}\
-}
-
-
-
-#else
-
-#define VERB0(LEVEL, OUTSTR)
-#define VERB1(LEVEL,OUTSTR,PARM1)
-#define VERB2(LEVEL,OUTSTR,PARM1,PARM2)
-#define VERB3(LEVEL,OUTSTR,PARM1,PARM2,PARM3) 
-#define VERB4(LEVEL,OUTSTR,PARM1,PARM2,PARM3,PARM4)
-#define VERB5(LEVEL,OUTSTR,PARM1,PARM2,PARM3,PARM4,PARM5)
-
-#endif
-
 #ifdef __ERR_MSG
 	#define NETVM_ASSERT(cond, msg) \
 		{\
@@ -169,6 +62,29 @@ extern "C" {
 		}
 #else
 	#define NETVM_ASSERT(cond, msg) { }
+#endif
+
+
+#ifdef ENABLE_NETVM_LOGGING
+	#define LOG_NETIL_INTERPRETER 1
+	#define LOG_JIT_BUILD_BLOCK_LVL2 2
+	#define LOG_JIT_LISTS_DEBUG_LVL 3
+	#define LOG_BYTECODE_LOAD_SAVE 4
+	#define LOG_RUNTIME_CREATE_PEGRAPH 5
+
+/*!
+	\brief Logs a given message to the specified file
+
+	This function logs the specific message on file. Files are predefined,
+	and depend on the firt argument of the function.
+
+	\param LogScope: scope of the log; each scope will originate a 
+	different log file with a predefined name.
+	
+	\param Format: format-control string.
+*/
+extern void logdata(int LogScope, const char *Format, ...);
+
 #endif
 
 
@@ -269,7 +185,7 @@ extern void nbPrintError(const char *File, const char *Function, int Line, char*
 	\param Line: line in which this function has been invoked.
 	\param Indentation: indentation level.
 */
-extern void nbPrintDebugLine(char* Msg, unsigned int DebugType, const char *File, const char *Function, int Line, unsigned int Indentation);
+extern void nbPrintDebugLine(const char* Msg, unsigned int DebugType, const char *File, const char *Function, int Line, unsigned int Indentation);
 
 #ifndef WIN32
 	#ifndef __func__

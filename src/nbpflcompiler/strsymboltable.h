@@ -41,7 +41,7 @@ public:
 		
 	*/
 
-	StrSymbolTable(bool ownsItems = 0, bool caseMatch =0)
+	StrSymbolTable(bool ownsItems = 0, bool caseMatch =1)
 		:HashTable<string, T>(ownsItems), m_CaseMatch(caseMatch){}
 	
 	

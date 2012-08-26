@@ -21,7 +21,7 @@ class IRNodeRegRenamer : public ICFGVisitorHandler
 	private:
 		PFLCFG &_cfg;
 		jit::RegisterInstance def_reg;
-		void visitNode(PFLMIRNode *node);
+		void visitNode(MIRONode *node);
 };
 
 #endif

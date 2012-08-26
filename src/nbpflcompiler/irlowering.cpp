@@ -4,53 +4,81 @@
 /*                                                                           */
 /*****************************************************************************/
 
-
+//[icerrato] I have completely changed the code generated for the extraction :-D
 
 #include "irlowering.h"
 #include <math.h> //for log10()
 #include "statements.h"
 #include "../nbee/globals/debug.h"
 
-
-void IRLowering::LowerHIRCode(CodeList *code, SymbolProto *proto, string comment)
+/*
+*resetCurrentOffset is true if we are generating the code for an extended transition and we are doing field extraction.
+* In this case, the current offset must be set at the beginning of the header after the code generation. Moreover, in this 
+*case the code for the field extraction is not generated now
+*/
+void IRLowering::LowerHIRCode(CodeList *code, SymbolProto *proto, string comment, bool resetCurrentOffset)
 {
 	m_Protocol = proto;
+	genExtractionCode = !resetCurrentOffset;	
 
 	LowerHIRCode(code, comment);
 
-	if(proto->proto_MultiField)
+	if((proto->NeedExtraction) && (!resetCurrentOffset) )
 	{
-		m_CodeGen.CommentStatement(string("MultiField - incremento variabile di estrazione"));
-		m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, proto->proto_Extract), m_CodeGen.TermNode(PUSH, 1)), proto->proto_Extract));
-	}
-
-	if(proto->ExAllfields)
-	{	//store the number of fields extracted
-		Node *position=m_CodeGen.TermNode(PUSH, proto->beginPosition);
+		//increment the variable proto_ExtractG
+		m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,proto->ExtractG), m_CodeGen.TermNode(PUSH, 1)),proto->ExtractG));
+		if(!proto->ExAllfields)
+		{
+			//we have to reset the variables which counts the instance of a field into the header
+			for(FieldsList_t::iterator fld = proto->fields_ToExtract.begin(); fld != proto->fields_ToExtract.end(); fld++)
+			{
+				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.TermNode(PUSH, (uint32)0),(*fld)->FieldCount));
+			}
+			
+		}
+		
+	}	
+	if(!resetCurrentOffset && proto->ExAllfields)
+	{	
+		//increment the variables
+		SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(proto, "allfields");
+		nbASSERT(symAllFields!=NULL,"There is an error");
+		MIRNode *position=m_CodeGen.TermNode(PUSH, proto->beginPosition);
 		m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,proto->NExFields), position));
 	}
+	
+	if(resetCurrentOffset)
+	{
+			m_CodeGen.CommentStatement(string("FieldExtraction - set the current offset at the beginning of this header"));		
+			SymbolVarInt *protoOffset =  m_GlobalSymbols.GetProtoOffsVar(proto);
+			SymbolTemp *protoOffsTemp = protoOffset->Temp;
+			m_CodeGen.GenStatement(m_CodeGen.TermNode(LOCST, m_CodeGen.CurrOffsTemp(), m_CodeGen.TermNode(LOCLD,protoOffsTemp)));
+	}
+	
 }
 
 void IRLowering::LowerHIRCode(CodeList *code, string comment)
 {
 	if (comment.compare("")!=0)
-		m_CodeGen.CommentStatement(comment);
+		m_CodeGen.CommentStatement(comment);	
+
 	LowerHIRCode(code);
 }
 
 void IRLowering::LowerHIRCode(CodeList *code)
 {
 	StmtBase *next = code->Front();
-
 	while(next)
 	{
 		TranslateStatement(next);
-		next = next->Next;
+			next = next->Next;
 	}
 }
 
 void IRLowering::TranslateLabel(StmtLabel *stmt)
 {
+
+	nbASSERT(stmt != NULL ,"stmt  cannot be NULL");
 	SymbolLabel *label = ManageLinkedLabel((SymbolLabel*)stmt->Forest->Sym, "");
 	m_CodeGen.LabelStatement(label);
 	//StmtLabel *lblStmt = m_CodeGen.LabelStatement(label);
@@ -59,7 +87,8 @@ void IRLowering::TranslateLabel(StmtLabel *stmt)
 
 void IRLowering::TranslateGen(StmtGen *stmt)
 {
-	Node *tree = stmt->Forest;
+	HIRNode *tree = static_cast<HIRNode*>(stmt->Forest);
+
 
 	nbASSERT(tree != NULL, "Forest cannot be NULL in a Gen Statement");
 	switch (tree->Op)
@@ -99,18 +128,31 @@ void IRLowering::TranslateGen(StmtGen *stmt)
 			nbASSERT(tree->GetLeftChild() != NULL, "Lookup select instruction should specify a keys list");
 			SymbolLookupTableKeysList *keys = (SymbolLookupTableKeysList *)tree->GetLeftChild()->Sym;
 			TranslateLookupSelect(entry, keys);
-		}break;
+		}
+		break;
 
 	case IR_LKUPDS:
 	case IR_LKUPDI:
 		TranslateLookupUpdate(tree);
+		//return true;
 		break;
-
+/*[icerrato] never used
 	case IR_DATA:
 		{
 			SymbolDataItem *data = (SymbolDataItem *)tree->Sym;
 			m_CodeGen.GenStatement(m_CodeGen.TermNode(IR_DATA, data));
-		}break;
+		}
+		//return true;
+		break;
+*/		
+	//[icerrato]
+	//IR code about this symbols should not be generated
+	case IR_LKDEFKEYI:		
+	case IR_LKDEFKEYS:
+	case IR_LKDEFDATAI:
+	case IR_LKDEFDATAS:
+	case IR_LKDEFTABLE:
+		break;
 
 	default:
 		nbASSERT(false, "IRLOWERING::translateGen: CANNOT BE HERE");
@@ -123,21 +165,24 @@ SymbolLabel *IRLowering::ManageLinkedLabel(SymbolLabel *label, string name)
 {
 	nbASSERT(label != NULL, "label cannot be NULL");
 
-	if (label->LblKind != LBL_LINKED)
+	if (label->LblKind != LBL_LINKED){
 		return label;
+		}
 
-	if (label->Linked != NULL)
+	if (label->Linked != NULL){
 		return label->Linked;
-
+		
+	}
+	
 	label->Linked = m_CodeGen.NewLabel(LBL_CODE, name);
 	return label->Linked;
 }
 
 void IRLowering::TranslateJump(StmtJump *stmt)
-{
+{	
 	nbASSERT(stmt->TrueBranch != NULL, "true branch should not be NULL");
 
-	SymbolLabel *trueBranch = ManageLinkedLabel(stmt->TrueBranch, "jump_true");
+	SymbolLabel *trueBranch = ManageLinkedLabel(stmt->TrueBranch, "jump_true"); 
 
 	if (stmt->Forest == NULL)
 	{
@@ -148,14 +193,14 @@ void IRLowering::TranslateJump(StmtJump *stmt)
 	nbASSERT(stmt->FalseBranch != NULL, "false branch should not be NULL");
 	SymbolLabel *falseBranch = ManageLinkedLabel(stmt->FalseBranch, "jump_false");
 	JCondInfo jcInfo(trueBranch, falseBranch);
-	TranslateBoolExpr(stmt->Forest, jcInfo);
+	TranslateBoolExpr(static_cast<HIRNode*>(stmt->Forest), jcInfo);
 }
 
 
-void IRLowering::TranslateRelOpInt(uint16 op, Node *relopExpr, JCondInfo &jcInfo)
+void IRLowering::TranslateRelOpInt(MIROpcodes op, HIRNode *relopExpr, JCondInfo &jcInfo)
 {
-	Node *leftExpr = TranslateTree(relopExpr->GetLeftChild());
-	Node *rightExpr = TranslateTree(relopExpr->GetRightChild());
+	MIRNode *leftExpr = TranslateTree(relopExpr->GetLeftChild());
+	MIRNode *rightExpr = TranslateTree(relopExpr->GetRightChild());
 
 	if (leftExpr && rightExpr)
 	{
@@ -168,19 +213,23 @@ void IRLowering::TranslateRelOpInt(uint16 op, Node *relopExpr, JCondInfo &jcInfo
 	}
 }
 
-void IRLowering::TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo)
+void IRLowering::TranslateRelOpStr(MIROpcodes op, HIRNode *relopExpr, JCondInfo &jcInfo)
 {
 #ifdef USE_STRING_COMPARISON
 	// operand nodes
-	Node *leftExpr = 0, *rightExpr = 0;
+	MIRNode *leftExpr = 0, *rightExpr = 0;
 	// constant sizes (if a size is known at run-time, the constant size will be 0)
 	uint32 leftSize = 0, rightSize = 0;
 	// node to load sizes
-	Node *leftSizeNode = 0, *rightSizeNode = 0;
+	MIRNode *leftSizeNode = 0, *rightSizeNode = 0;
+
+	nbASSERT(relopExpr!=NULL,"There is a bug!");
+	nbASSERT(relopExpr->GetLeftChild()!=NULL,"There is a bug!");
+	nbASSERT(relopExpr->GetRightChild()!=NULL,"There is a bug!");
 
 	this->TranslateRelOpStrOperand(relopExpr->GetLeftChild(), &leftExpr, &leftSizeNode, &leftSize);
 	this->TranslateRelOpStrOperand(relopExpr->GetRightChild(), &rightExpr, &rightSizeNode, &rightSize);
-
+	
 	if (leftExpr!=NULL && rightExpr!=NULL)
 	{
 		switch (op)
@@ -193,7 +242,7 @@ void IRLowering::TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo
 					if (leftSize==rightSize)
 						m_CodeGen.JFieldStatement(op, jcInfo.TrueLbl, jcInfo.FalseLbl, leftExpr, rightExpr, leftSizeNode);
 					else
-						m_CodeGen.JumpStatement(jcInfo.FalseLbl);
+						m_CodeGen.IRCodeGen::JumpStatement(jcInfo.FalseLbl);
 				}
 				else
 				{
@@ -218,7 +267,7 @@ void IRLowering::TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo
 					if (leftSize==rightSize)
 						m_CodeGen.JFieldStatement(op, jcInfo.TrueLbl, jcInfo.FalseLbl, leftExpr, rightExpr, leftSizeNode);
 					else
-						m_CodeGen.JumpStatement(jcInfo.TrueLbl);
+						m_CodeGen.IRCodeGen::JumpStatement(jcInfo.TrueLbl);
 				}
 				else
 				{
@@ -267,7 +316,7 @@ void IRLowering::TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo
 				else
 				{
 					SymbolTemp *strMinSize=m_CodeGen.NewTemp("str_min_size", m_CompUnit.NumLocals);
-					Node *loadStrMinSize=m_CodeGen.TermNode(LOCLD, strMinSize);
+					MIRNode *loadStrMinSize=m_CodeGen.TermNode(LOCLD, strMinSize);
 					SymbolLabel *minTrue=m_CodeGen.NewLabel(LBL_CODE, "if_true");
 					SymbolLabel *minFalse=m_CodeGen.NewLabel(LBL_CODE, "if_false");
 					SymbolLabel *minDone=m_CodeGen.NewLabel(LBL_CODE, "end_if");
@@ -319,7 +368,7 @@ void IRLowering::TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo
 				else
 				{
 					SymbolTemp *strMinSize=m_CodeGen.NewTemp("str_min_size", m_CompUnit.NumLocals);
-					Node *loadStrMinSize=m_CodeGen.TermNode(LOCLD, strMinSize);
+					MIRNode *loadStrMinSize=m_CodeGen.TermNode(LOCLD, strMinSize);
 					SymbolLabel *minTrue=m_CodeGen.NewLabel(LBL_CODE, "if_true");
 					SymbolLabel *minFalse=m_CodeGen.NewLabel(LBL_CODE, "if_false");
 					SymbolLabel *minDone=m_CodeGen.NewLabel(LBL_CODE, "end_if");
@@ -346,6 +395,7 @@ void IRLowering::TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo
 	}
 	else
 	{
+//		nbASSERT(false,"O_o");
 		this->GenerateWarning("One of the operand of the string comparison has not been defined.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
 		m_CodeGen.CommentStatement("ERROR: One of the operand of the string comparison has not been defined.");
 	}
@@ -355,7 +405,7 @@ void IRLowering::TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo
 #endif
 }
 
-void IRLowering::TranslateRelOpStrOperand(Node *operand, Node **loadOperand, Node **loadSize, uint32 *size)
+void IRLowering::TranslateRelOpStrOperand(HIRNode *operand, MIRNode **loadOperand, MIRNode **loadSize, uint32 *size)
 {
 	switch(operand->Op)
 	{
@@ -412,14 +462,13 @@ void IRLowering::TranslateRelOpStrOperand(Node *operand, Node **loadOperand, Nod
 	case IR_SVAR:
 		{
 			SymbolVariable *var=(SymbolVariable *)operand->Sym;
-
 			if (var->VarType==PDL_RT_VAR_REFERENCE)
 			{
 				SymbolVarBufRef *refVar=(SymbolVarBufRef *)var;
 				if (refVar->Name.compare("$packet")==0)
 				{
-					Node *leftKid=operand->GetLeftChild();
-					Node *rightKid=operand->GetRightChild();
+					HIRNode *leftKid=operand->GetLeftChild();
+					HIRNode *rightKid=operand->GetRightChild();
 					if (leftKid!=NULL && rightKid!=NULL)
 					{
 						*loadOperand=TranslateTree(leftKid);
@@ -459,7 +508,6 @@ void IRLowering::TranslateRelOpStrOperand(Node *operand, Node **loadOperand, Nod
 						this->GenerateWarning("A variable to be used as string should define offset and size.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
 						break;
 					}
-
 					*loadOperand=m_CodeGen.TermNode(LOCLD, refVar->IndexTemp);
 
 					if (refVar->GetFixedSize()==0)
@@ -488,7 +536,7 @@ void IRLowering::TranslateRelOpStrOperand(Node *operand, Node **loadOperand, Nod
 	}
 }
 
-void IRLowering::TranslateBoolExpr(Node *expr, JCondInfo &jcInfo)
+void IRLowering::TranslateBoolExpr(HIRNode *expr, JCondInfo &jcInfo)
 {
 	switch(expr->Op)
 	{
@@ -565,7 +613,7 @@ void IRLowering::TranslateBoolExpr(Node *expr, JCondInfo &jcInfo)
 					SymbolVarInt *symInt=(SymbolVarInt *)sym;
 
 					if (symInt->Temp!=NULL) {
-						Node *jump=m_CodeGen.BinOp(JCMPGE, m_CodeGen.TermNode(LOCLD, symInt->Temp), m_CodeGen.TermNode(PUSH, 1));
+						MIRNode *jump=m_CodeGen.BinOp(JCMPGE, m_CodeGen.TermNode(LOCLD, symInt->Temp), m_CodeGen.TermNode(PUSH, 1));
 						m_CodeGen.JCondStatement(jcInfo.TrueLbl, jcInfo.FalseLbl, jump);
 					} else {
 						this->GenerateWarning(string("The int variable ")+sym->Name+string(" is unassigned"), __FILE__, __FUNCTION__, __LINE__, 1, 5);
@@ -583,11 +631,11 @@ void IRLowering::TranslateBoolExpr(Node *expr, JCondInfo &jcInfo)
 
 	case IR_CINT:
 		{
-			Node *cint=TranslateCInt(expr);
+			MIRNode *cint=TranslateCInt(expr);
 
 			if (cint!=NULL)
 			{
-				Node *jump=m_CodeGen.BinOp(JCMPGE, cint, m_CodeGen.TermNode(PUSH, 1));
+				MIRNode *jump=m_CodeGen.BinOp(JCMPGE, cint, m_CodeGen.TermNode(PUSH, 1));
 				m_CodeGen.JCondStatement(jcInfo.TrueLbl, jcInfo.FalseLbl, jump);
 			}
 		}break;
@@ -601,9 +649,12 @@ void IRLowering::TranslateBoolExpr(Node *expr, JCondInfo &jcInfo)
 		break;
 
 	case IR_REGEXFND:
-		TranslateRelOpRegEx(expr, jcInfo);
+		TranslateRelOpRegExStrMatch(expr, jcInfo,string("regexp"));
 		break;
-
+		
+	case IR_STRINGMATCHINGFND:
+		TranslateRelOpRegExStrMatch(expr, jcInfo,string("stringmatching"));
+		break;
 	default:
 		this->GenerateWarning(string("The node type is not supported"), __FILE__, __FUNCTION__, __LINE__, 1, 5);
 		m_CodeGen.CommentStatement(string("ERROR: The node type is not supported"));
@@ -612,45 +663,67 @@ void IRLowering::TranslateBoolExpr(Node *expr, JCondInfo &jcInfo)
 }
 
 
-void IRLowering::TranslateRelOpRegEx(Node *expr, JCondInfo &jcInfo)
+void IRLowering::TranslateRelOpRegExStrMatch(HIRNode *expr, JCondInfo &jcInfo, string copro)
 {
 //#ifdef USE_REGEX
 	nbASSERT(expr->Sym != NULL, "The RegExp operand should define a valid RegExp symbol");
 
-	SymbolRegEx *regExp = (SymbolRegEx * )expr->Sym;
+	SymbolRegEx *regExpGeneric = static_cast<SymbolRegEx*>(expr->Sym);
 
 	// set pattern id
 	m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-		m_CodeGen.TermNode(PUSH, regExp->Id),
-		new SymbolLabel(LBL_ID, 0, string("regexp")),
+		m_CodeGen.TermNode(PUSH, regExpGeneric->Id),
+		new SymbolLabel(LBL_ID, 0, copro),
 		REGEX_OUT_PATTERN_ID));
 
-	// set buffer offset
-	m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-		TranslateTree(regExp->Offset),
-		new SymbolLabel(LBL_ID, 0, string("regexp")),
-		REGEX_OUT_BUF_OFFSET));
+	
+	if(regExpGeneric->MyType()==NETPDL){
+		SymbolRegExPDL *regExp = static_cast<SymbolRegExPDL*>(regExpGeneric);
 
-	// calculate and set buffer length
-	m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-		m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
-		new SymbolLabel(LBL_ID, 0, string("regexp")),
-		REGEX_OUT_BUF_LENGTH));
+		translForRegExp=OFFSET;
+		m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
+			TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
+			new SymbolLabel(LBL_ID, 0,copro),
+			REGEX_OUT_BUF_OFFSET));	
+				
+		translForRegExp=SIZE;
+		MIRNode *size = TranslateTree(static_cast<HIRNode*>(regExp->Offset));
+		MIRNode *statement = (translForRegExp==SIZE) ? m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL),size) : size;
+		m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
+			statement,
+			new SymbolLabel(LBL_ID, 0,copro),
+			REGEX_OUT_BUF_LENGTH));
 
+		translForRegExp=NOTHING;
+	}else
+	if(regExpGeneric->MyType()==NETPFL){
+		SymbolRegExPFL *regExp = static_cast<SymbolRegExPFL*>(regExpGeneric);
+		m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
+			m_CodeGen.UnOp(LOCLD,regExp->Offset),
+			new SymbolLabel(LBL_ID, 0, copro),
+			REGEX_OUT_BUF_OFFSET));	
+
+		m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
+				m_CodeGen.UnOp(LOCLD,regExp->Size),
+				new SymbolLabel(LBL_ID, 0, copro),
+				REGEX_OUT_BUF_LENGTH));			
+	}
+	else  
+		nbASSERT(false,"Cannot be here!");	
 
 	// find the pattern
-	m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
+	m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0,copro), REGEX_MATCH_WITH_OFFSET));
 
 	// check the result
-	Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+	MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, copro), REGEX_IN_MATCHES_FOUND);
 
-	Node *leftExpr = validNode;
-	Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+	MIRNode *leftExpr = validNode;
+	MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 	m_CodeGen.JCondStatement(jcInfo.TrueLbl, jcInfo.FalseLbl, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
 //#endif
 }
 
-void IRLowering::TranslateRelOpLookup(uint16 opCode, Node *expr, JCondInfo &jcInfo)
+void IRLowering::TranslateRelOpLookup(HIROpcodes opCode, HIRNode *expr, JCondInfo &jcInfo)
 {
 //#ifdef USE_LOOKUPTABLE
 	nbASSERT(expr->Sym != NULL, "The lookup selection node should specify a valid lookup table entry symbol");
@@ -667,9 +740,9 @@ void IRLowering::TranslateRelOpLookup(uint16 opCode, Node *expr, JCondInfo &jcIn
 	}
 
 	// jump to true if coprocessor returns valid
-	Node *validNode = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALID);
+	MIRNode *validNode = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALID);
 
-	Node *jump=m_CodeGen.BinOp(JCMPEQ, m_CodeGen.TermNode(PUSH, 1), validNode);
+	MIRNode *jump=m_CodeGen.BinOp(JCMPEQ, m_CodeGen.TermNode(PUSH, 1), validNode);
 	
 	if (opCode == IR_LKSEL)
 		m_CodeGen.JCondStatement(jcInfo.TrueLbl, jcInfo.FalseLbl, jump);
@@ -714,7 +787,7 @@ void IRLowering::TranslateRelOpLookup(uint16 opCode, Node *expr, JCondInfo &jcIn
 
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, entry->Table->Label, LOOKUP_EX_OP_GET_VALUE));
 
-			Node *flagNode = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALUE);
+			MIRNode *flagNode = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALUE);
 
 			StmtSwitch *swStmt = m_CodeGen.SwitchStatement(flagNode);
 			swStmt->SwExit = m_CodeGen.NewLabel(LBL_LINKED);
@@ -754,9 +827,10 @@ void IRLowering::TranslateRelOpLookup(uint16 opCode, Node *expr, JCondInfo &jcIn
 
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, entry->Table->Label, LOOKUP_EX_OP_GET_VALUE));
 
-				Node *lifespanValueNode = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALUE);
+				MIRNode *lifespanValueNode = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALUE);
 
 				m_CodeGen.GenStatement(m_CodeGen.TermNode(LOCST, lifespan, lifespanValueNode));
+
 
 				// get entry timestamp (seconds)
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
@@ -771,7 +845,7 @@ void IRLowering::TranslateRelOpLookup(uint16 opCode, Node *expr, JCondInfo &jcIn
 
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, entry->Table->Label, LOOKUP_EX_OP_GET_VALUE));
 
-				Node *entryTimestampSValue = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALUE);
+				MIRNode *entryTimestampSValue = m_CodeGen.TermNode(COPIN, entry->Table->Label, LOOKUP_EX_IN_VALUE);
 
 				m_CodeGen.GenStatement(m_CodeGen.TermNode(LOCST, entryTimestampS, entryTimestampSValue));
 
@@ -779,8 +853,8 @@ void IRLowering::TranslateRelOpLookup(uint16 opCode, Node *expr, JCondInfo &jcIn
 				SymbolLabel *toDelete = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 				SymbolLabel *dontDelete = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 				SymbolLabel *done = m_CodeGen.NewLabel(LBL_CODE, "end_if");
-				Node *currentTime = m_CodeGen.TermNode(LOCLD, timestampS);
-				Node *packetLimitTime = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, entryTimestampS), m_CodeGen.TermNode(LOCLD, lifespan));
+				MIRNode *currentTime = m_CodeGen.TermNode(LOCLD, timestampS);
+				MIRNode *packetLimitTime = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, entryTimestampS), m_CodeGen.TermNode(LOCLD, lifespan));
 				m_CodeGen.JCondStatement(JCMPGE, toDelete, dontDelete, packetLimitTime, currentTime);
 				m_CodeGen.LabelStatement(toDelete);
 
@@ -925,6 +999,8 @@ bool IRLowering::TranslateLookupSelect(SymbolLookupTableEntry *entry, SymbolLook
 	// reset coprocessor
 	m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, entry->Table->Label, LOOKUP_EX_OP_RESET));
 
+	
+
 	if (this->TranslateLookupSetValue(entry, keys, true)==false)
 		return false;
 
@@ -945,7 +1021,7 @@ bool IRLowering::TranslateLookupSelect(SymbolLookupTableEntry *entry, SymbolLook
 	return true;
 }
 
-void IRLowering::TranslateLookupAdd(Node *node)
+void IRLowering::TranslateLookupAdd(HIRNode *node)
 {
 //#ifdef USE_LOOKUPTABLE
 	SymbolLookupTableEntry *entry = (SymbolLookupTableEntry *)node->Sym;
@@ -979,7 +1055,7 @@ void IRLowering::TranslateLookupAdd(Node *node)
 	
 }
 
-void IRLowering::TranslateLookupDelete(Node *node)
+void IRLowering::TranslateLookupDelete(HIRNode *node)
 {
 #ifdef USE_LOOKUPTABLE
 	nbASSERT(node->Sym != NULL, "The lookup delete node should specify a valid lookup table entry symbol");
@@ -1004,12 +1080,12 @@ void IRLowering::TranslateLookupDelete(Node *node)
 #endif
 }
 
-void IRLowering::TranslateLookupUpdate(Node *node)
+void IRLowering::TranslateLookupUpdate(HIRNode *node)
 {
 #ifdef USE_LOOKUPTABLE
 	SymbolLookupTable *table = (SymbolLookupTable *)node->Sym;
-	Node *offsetNode = node->GetLeftChild();
-	Node *newValueNode = node->GetRightChild();
+	HIRNode *offsetNode = node->GetLeftChild();
+	HIRNode *newValueNode = node->GetRightChild();
 
 	nbASSERT(table != NULL, "The update instruction should specify a lookup table");
 	nbASSERT(newValueNode != NULL, "The update instruction should specify a valid value");
@@ -1019,7 +1095,7 @@ void IRLowering::TranslateLookupUpdate(Node *node)
 	m_CodeGen.CommentStatement(string("Update a value of the selected entry in the table ").append(table->Name));
 
 	//SymbolTemp *temp;
-	Node *toUpdate = TranslateTree(newValueNode);
+	MIRNode *toUpdate = TranslateTree(newValueNode);
 	SymbolTemp *valueToUpdate = m_CodeGen.NewTemp("value_to_update", m_CompUnit.NumLocals);
 	m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, toUpdate, valueToUpdate));
 
@@ -1050,7 +1126,8 @@ void IRLowering::TranslateLookupUpdate(Node *node)
 #endif
 }
 
-void IRLowering::TranslateLookupInit(Node *node)
+//[icerrato] never used
+/*void IRLowering::TranslateLookupInit(Node *node)
 {
 #ifdef USE_LOOKUPTABLE
 	// set tables number
@@ -1066,8 +1143,10 @@ void IRLowering::TranslateLookupInit(Node *node)
 	m_CodeGen.CommentStatement("ERROR: Lookup table instructions (init) has not yet been implemented.");
 #endif
 }
+*/
 
-void IRLowering::TranslateLookupInitTable(Node *node)
+//[icerrato] never used
+/*void IRLowering::TranslateLookupInitTable(Node *node)
 {
 #ifdef USE_LOOKUPTABLE
 	SymbolLookupTable *table = (SymbolLookupTable *)node->Sym;
@@ -1112,13 +1191,13 @@ void IRLowering::TranslateLookupInitTable(Node *node)
 	m_CodeGen.CommentStatement("ERROR: Lookup table instructions (init) has not yet been implemented.");
 #endif
 
-}
+}*/
 
 bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLookupTableValuesList *values, bool isKeysList)
 {
 //#ifdef USE_LOOKUPTABLE
 	// load the value in the coprocessor
-	Node *value=NULL;
+	MIRNode *value=NULL;
 
 	SymbolLookupTableItemsList_t::iterator itemIter;
 	if (isKeysList)
@@ -1130,7 +1209,6 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 	if (isKeysList)
 		maskIter=((SymbolLookupTableKeysList *)values)->Masks.begin();
 	NodesList_t::iterator valueIter = values->Values.begin();
-
 	while (valueIter != values->Values.end())
 	{
 		uint32 size = (*itemIter)->Size;
@@ -1139,7 +1217,7 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 		{
 			// if you have a not null mask, add a dummy value (0)
 			uint32 refLoaded = 0;
-			Node *pieceOffset = m_CodeGen.TermNode(PUSH, (uint32)(0));
+			MIRNode *pieceOffset = m_CodeGen.TermNode(PUSH, (uint32)(0));
 			uint32 bytes2Load = 0;
 			// put value in steps of max 4 bytes
 			while (refLoaded<size)
@@ -1188,16 +1266,18 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 			case IR_SVAR:
 				{
 					nbASSERT((*valueIter)->Sym != NULL, "node symbol cannot be NULL");
-					Node *fieldOffset = (*valueIter)->GetLeftChild();
+					HIRNode *fieldOffset = static_cast<HIRNode*>((*valueIter))->GetLeftChild();
+								
+					MIRNode *MIRfieldOffset = NULL; //[icerrato]
 
 					if (fieldOffset != NULL)
 					{
-						fieldOffset = TranslateTree(fieldOffset);
-						Node *lenNode = (*valueIter)->GetRightChild();
+						MIRfieldOffset = TranslateTree(fieldOffset);
+						HIRNode *lenNode = static_cast<HIRNode*>((*valueIter))->GetRightChild();
 						nbASSERT(lenNode->Op == IR_ICONST, "lenNode should be an IR_ICONST");
 						size = ((SymbolIntConst*)lenNode->Sym)->Value;
 					}
-
+					
 					SymbolVarBufRef *ref = (SymbolVarBufRef*)(*valueIter)->Sym;
 
 					if (ref->RefType == REF_IS_PACKET_VAR && ref->Name.compare("$packet")==0)
@@ -1208,7 +1288,7 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 						return false;
 #else
 						uint32 refLoaded = 0;
-						Node *pieceOffset = NULL;
+						MIRNode *pieceOffset = NULL;
 						uint32 bytes2Load = 0;
 						// SymbolTemp *indexTemp = ref->IndexTemp;
 						// put value in steps of max 4 bytes
@@ -1222,9 +1302,9 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 								//if (refLoaded>0)
 								//	pieceOffset = m_CodeGen.BinOp(ADD, pieceOffset, m_CodeGen.TermNode(PUSH, refLoaded));
 								if (refLoaded>0)
-									pieceOffset = m_CodeGen.BinOp(ADD, fieldOffset, m_CodeGen.TermNode(PUSH, refLoaded));
+									pieceOffset = m_CodeGen.BinOp(ADD, MIRfieldOffset, m_CodeGen.TermNode(PUSH, refLoaded));
 								else
-									pieceOffset = fieldOffset;
+									pieceOffset = MIRfieldOffset;
 
 								bytes2Load = (size-refLoaded)>=sizeof(uint32) ? sizeof(uint32) : ((size-refLoaded)%sizeof(uint32));
 							}
@@ -1261,6 +1341,8 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 						}
 #endif
 					} else if (ref->RefType == REF_IS_REF_TO_FIELD) {
+						
+					
 						nbASSERT(ref->GetFixedMaxSize() <= size, "The reference variable should define a valid max size.");
 
 						SymbolTemp *indexTemp = ref->IndexTemp;
@@ -1268,9 +1350,10 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 							indexTemp = ref->IndexTemp = m_CodeGen.NewTemp(ref->Name + string("_ref_ind"), m_CompUnit.NumLocals);
 
 						uint32 refLoaded = 0;
-						Node *pieceOffset = NULL;
+						MIRNode *pieceOffset = NULL;
 						uint32 bytes2Load = 0;
 						// put value in steps of max 4 bytes
+						
 						while (refLoaded<size)
 						{
 							if (ref->GetFixedSize()==0)
@@ -1285,12 +1368,15 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 								//
 								// if true, load the current step
 								//
+								
 								pieceOffset = m_CodeGen.TermNode(LOCLD, indexTemp);
 								if (fieldOffset!=0)
-									pieceOffset = m_CodeGen.BinOp(ADD, pieceOffset, fieldOffset);
+									pieceOffset = m_CodeGen.BinOp(ADD, pieceOffset, MIRfieldOffset);
 								if (refLoaded>0)
 									pieceOffset = m_CodeGen.BinOp(ADD, pieceOffset, m_CodeGen.TermNode(PUSH, refLoaded));
 								bytes2Load = (size-refLoaded)>=sizeof(uint32) ? sizeof(uint32) : ((size-refLoaded)%sizeof(uint32));
+
+
 
 								// set table id
 								m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
@@ -1305,6 +1391,7 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 										GenMemLoad(pieceOffset, bytes2Load),
 										entry->Table->Label,
 										LOOKUP_EX_OUT_GENERIC));
+
 									
 								}
 								else
@@ -1327,6 +1414,7 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 								//
 								// if false, load 0
 								//
+
 
 								// set table id
 								m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
@@ -1352,9 +1440,10 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 							{
 								if (ref->GetFixedMaxSize()>refLoaded)
 								{
+														
 									pieceOffset = m_CodeGen.TermNode(LOCLD, indexTemp);
-									if (fieldOffset!=0)
-										pieceOffset = m_CodeGen.BinOp(ADD, pieceOffset, fieldOffset);
+									if (MIRfieldOffset!=0)
+										pieceOffset = m_CodeGen.BinOp(ADD, pieceOffset, MIRfieldOffset);
 									if (refLoaded>0)
 										pieceOffset = m_CodeGen.BinOp(ADD, pieceOffset, m_CodeGen.TermNode(PUSH, refLoaded));
 
@@ -1408,7 +1497,7 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 
 				// add value
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-					TranslateTree(*valueIter),
+					TranslateTree(static_cast<HIRNode*>(*valueIter)),
 					entry->Table->Label,
 					LOOKUP_EX_OUT_GENERIC));
 
@@ -1440,7 +1529,7 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 			for (uint32 size=0; size < (entry->Table->HiddenValuesList[valueIter]->Size/sizeof(uint32)); size++)
 			{
 				if (entry->HiddenValues[valueIter]!=NULL)
-					value = TranslateTree(entry->HiddenValues[valueIter]);
+					value = TranslateTree(static_cast<HIRNode*>(entry->HiddenValues[valueIter]));
 				else
 					value = m_CodeGen.TermNode(PUSH, (uint32)-1);
 
@@ -1454,14 +1543,13 @@ bool IRLowering::TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLo
 			}
 		}
 	}
-
 	return true;
 /*#else
 	return false;
 #endif*/
 }
 
-void IRLowering::TranslateCase(StmtSwitch *newSwitchSt, StmtCase *caseSt, SymbolLabel *swExit, bool IsDefault)
+void IRLowering::TranslateCase(MIRStmtSwitch *newSwitchSt, StmtCase *caseSt, SymbolLabel *swExit, bool IsDefault)
 {
 	//if the code for the current case is empty we drop it
 	//! \todo manage the number of cases!
@@ -1477,20 +1565,20 @@ void IRLowering::TranslateCase(StmtSwitch *newSwitchSt, StmtCase *caseSt, Symbol
 	}
 	else
 	{
-		StmtCase *newCase = new StmtCase(TranslateTree(caseSt->Forest), caseLabel);
+		StmtCase *newCase = new StmtCase(TranslateTree(static_cast<HIRNode*>(caseSt->Forest)), caseLabel);
 		CHECK_MEM_ALLOC(newCase);
 		newSwitchSt->Cases->PushBack(newCase);
 
 		// [ds] no. of cases will be computed by actually adding case statements
 		newSwitchSt->NumCases++;
 	}
-	m_CodeGen.LabelStatement(caseLabel);
+	m_CodeGen.LabelStatement(caseLabel);		
 	LowerHIRCode(caseSt->Code->Code);
 	m_CodeGen.JumpStatement(JUMPW, swExit);
 }
 
 
-void IRLowering::TranslateCases(StmtSwitch *newSwitchSt, CodeList *cases, SymbolLabel *swExit)
+void IRLowering::TranslateCases(MIRStmtSwitch *newSwitchSt, CodeList *cases, SymbolLabel *swExit)
 {
 	StmtBase *caseSt = cases->Front();
 	while(caseSt)
@@ -1501,9 +1589,9 @@ void IRLowering::TranslateCases(StmtSwitch *newSwitchSt, CodeList *cases, Symbol
 	}
 }
 
-void IRLowering::TranslateSwitch(StmtSwitch *stmt)
+void IRLowering::TranslateSwitch(HIRStmtSwitch *stmt)
 {
-	StmtSwitch *swStmt = m_CodeGen.SwitchStatement(TranslateTree(stmt->Forest));
+	MIRStmtSwitch *swStmt = m_CodeGen.SwitchStatement(TranslateTree(static_cast<HIRNode*>(stmt->Forest)));
 	// [ds] no. of cases will be computed by actually adding case statements
 	//swStmt->NumCases = stmt->NumCases;
 	//if the exit label was not already created we must create it
@@ -1512,7 +1600,7 @@ void IRLowering::TranslateSwitch(StmtSwitch *stmt)
 	TranslateCases(swStmt, stmt->Cases, swExit);
 	if (stmt->Default != NULL)
 	{
-		TranslateCase(swStmt, stmt->Default, swExit, true);
+		TranslateCase(swStmt, stmt->Default, swExit, true); 
 	}
 	else if (stmt->ForceDefault)
 	{
@@ -1533,8 +1621,8 @@ void IRLowering::TranslateSwitch(StmtSwitch *stmt)
 	stmt->SwExit->Linked = NULL;
 }
 
-
-void IRLowering::TranslateSwitch2(StmtSwitch *stmt)
+//[icerrato] never used
+/*void IRLowering::TranslateSwitch2(StmtSwitch *stmt)
 {
 	SymbolTemp *tmp = m_CodeGen.NewTemp("", m_CompUnit.NumLocals);
 	m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, TranslateTree(stmt->Forest), tmp));
@@ -1576,7 +1664,7 @@ void IRLowering::TranslateSwitch2(StmtSwitch *stmt)
 	m_CodeGen.LabelStatement(swExit);
 	//reset the switch exit label;
 	stmt->SwExit->Linked = NULL;
-}
+}*/
 
 
 void IRLowering::EnterLoop(SymbolLabel *start, SymbolLabel *exit)
@@ -1616,7 +1704,7 @@ void IRLowering::TranslateIf(StmtIf *stmt)
 
 	*/
 
-	Node *expr = stmt->Forest;
+	HIRNode *expr = static_cast<HIRNode*>(stmt->Forest);
 	ReverseCondition(&expr);
 
 	SymbolLabel *trueLabel = m_CodeGen.NewLabel(LBL_CODE, "if_true");
@@ -1625,10 +1713,11 @@ void IRLowering::TranslateIf(StmtIf *stmt)
 
 	JCondInfo jcInfo(falseLabel, trueLabel);
 
-	TranslateBoolExpr(expr, jcInfo);
+	TranslateBoolExpr(expr, jcInfo); 
 
 	//if_N_true:
 	m_CodeGen.LabelStatement(trueLabel);
+
 
 	if (stmt->TrueBlock->Code->Empty()==false)
 	{
@@ -1656,7 +1745,7 @@ void IRLowering::TranslateIf(StmtIf *stmt)
 }
 
 
-void IRLowering::GenTempForVar(Node *node)
+void IRLowering::GenTempForVar(HIRNode *node)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 	nbASSERT(node->Sym != NULL, "node symbol cannot be NULL");
@@ -1687,9 +1776,9 @@ void IRLowering::TranslateLoop(StmtLoop *stmt)
 	...
 	*/
 
-	GenTempForVar(stmt->Forest);
-	Node *index = TranslateTree(stmt->Forest);
-	Node *initVal = TranslateTree(stmt->InitVal);
+	GenTempForVar(static_cast<HIRNode*>(stmt->Forest));
+	MIRNode *index = TranslateTree(static_cast<HIRNode*>(stmt->Forest));
+	MIRNode *initVal = TranslateTree(static_cast<HIRNode*>(stmt->InitVal));
 	//index = initval
 	m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, initVal, index->Sym));
 	SymbolLabel *test = m_CodeGen.NewLabel(LBL_CODE);
@@ -1708,7 +1797,7 @@ void IRLowering::TranslateLoop(StmtLoop *stmt)
 	TranslateStatement(stmt->IncStmt);
 	//if (condition) goto start else goto exit
 	JCondInfo jcInfo(start, exit);
-	TranslateBoolExpr(stmt->TermCond, jcInfo);
+	TranslateBoolExpr(static_cast<HIRNode*>(stmt->TermCond), jcInfo);
 	//exit:
 	m_CodeGen.LabelStatement(exit);
 	ExitLoop();
@@ -1738,7 +1827,7 @@ void IRLowering::TranslateWhileDo(StmtWhile *stmt)
 			skip=false;
 	}
 
-	Node *sentinel = stmt->Forest->GetRightChild();
+	HIRNode *sentinel = static_cast<HIRNode*>(stmt->Forest)->GetRightChild();
 
 	if (skip == false || sentinel == NULL)
 	{
@@ -1758,7 +1847,7 @@ void IRLowering::TranslateWhileDo(StmtWhile *stmt)
 		m_CodeGen.LabelStatement(test);
 		//if (condition) goto start else goto exit
 		JCondInfo jcInfo(start, exit);
-		TranslateBoolExpr(stmt->Forest, jcInfo);
+		TranslateBoolExpr(static_cast<HIRNode*>(stmt->Forest), jcInfo);
 		//exit:
 		m_CodeGen.LabelStatement(exit);
 		ExitLoop();
@@ -1773,7 +1862,7 @@ void IRLowering::TranslateWhileDo(StmtWhile *stmt)
 
 		m_CodeGen.TermNode(LOCLD, currOffsTemp);
 		// Node *offset = m_CodeGen.TermNode(LOCLD, currOffsTemp);
-		Node *newOffset = m_CodeGen.TermNode(LOCLD, sentinelVar->Temp);
+		MIRNode *newOffset = m_CodeGen.TermNode(LOCLD, sentinelVar->Temp);
 
 		m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, newOffset, currOffsTemp));
 
@@ -1820,7 +1909,8 @@ void IRLowering::TranslateDoWhile(StmtWhile *stmt)
 	LowerHIRCode(stmt->Code->Code, "loop body");
 	//if (condition) goto start else goto exit
 	JCondInfo jcInfo(start, exit);
-	TranslateBoolExpr(stmt->Forest, jcInfo);
+	TranslateBoolExpr(static_cast<HIRNode*>(stmt->Forest), jcInfo); 
+
 	//exit:
 	m_CodeGen.LabelStatement(exit);
 	ExitLoop();
@@ -1840,10 +1930,10 @@ void IRLowering::TranslateContinue(StmtCtrl *stmt)
 	m_CodeGen.JumpStatement(JUMPW, start);
 }
 
-void IRLowering::TranslateFieldDef(Node *node)
+void IRLowering::TranslateFieldDef(HIRNode *node)
 {
 	nbASSERT(node->Op == IR_DEFFLD, "node must be an IR_DEFFLD");
-	Node *leftChild = node->GetLeftChild();
+	HIRNode *leftChild = node->GetLeftChild();
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(leftChild->Op == IR_FIELD, "left child must be an IR_FIELD");
 	nbASSERT(leftChild->Sym != NULL, "left child symbol cannot be NULL");
@@ -1856,6 +1946,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 	nbASSERT(protoOffsVar->Temp != NULL, "m_Protocol->ProtoOffsVar->Temp cannot be NULL");
 
 	SymbolTemp *protoOffsTemp = protoOffsVar->Temp;
+
 
 	// [ds] we will use the symbol that defines different version of the same field
 	SymbolField *sym=this->m_GlobalSymbols.LookUpProtoField(this->m_Protocol, fieldSym);
@@ -1875,11 +1966,11 @@ void IRLowering::TranslateFieldDef(Node *node)
 	if (sym->UsedAsArray)
 		usedAsArray=true;
 
-	Node *offset=NULL;
+	MIRNode *offset=NULL;
 
 	// offset = $currentoffset
 	offset=m_CodeGen.TermNode(LOCLD, currOffsTemp);
-
+	
 	if ((sym->FieldType==PDL_FIELD_FIXED || sym->FieldType==PDL_FIELD_VARLEN || sym->FieldType==PDL_FIELD_TOKEND|| sym->FieldType==PDL_FIELD_TOKWRAP
 				|| sym->FieldType==PDL_FIELD_LINE || sym->FieldType==PDL_FIELD_PATTERN || sym->FieldType==PDL_FIELD_EATALL ) && sym->DependsOn!=NULL)
 	{
@@ -1919,23 +2010,31 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 		}
 
-		uint32 iOffset=0;
+		bool offsetIncremented = false; 
+		SymbolTemp *offsetAux = m_CodeGen.NewTemp(string("OffsetAux_ind"), m_CompUnit.NumLocals); 
+		MIRNode *offNode = static_cast<MIRNode*>(offset->Clone());
+		m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offNode, offsetAux));
+
 		FieldsList_t::iterator innerField =  container->InnerFields.begin();
 		while (innerField != container->InnerFields.end() && *innerField!=sym)
 		{
-			// offset = offset + innerField.size
+			offsetIncremented = true; 
+
 			switch ((*innerField)->FieldType)
 			{
 			case PDL_FIELD_FIXED:
-				iOffset += ((SymbolFieldFixed *)*innerField)->Size;
+				{
+					SymbolFieldFixed *fixedFieldSym = static_cast<SymbolFieldFixed*>(*innerField);
+					SymbolTemp *lenTemp = fixedFieldSym->LenTemp;
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD,m_CodeGen.UnOp(LOCLD,lenTemp),m_CodeGen.UnOp(LOCLD,offsetAux)), offsetAux));
+				}
 				break;
 			case PDL_FIELD_VARLEN:
 				{
-					SymbolTemp *lenTemp = m_CodeGen.NewTemp(sym->Name + string("_len"), m_CompUnit.NumLocals);
-					((SymbolFieldVarLen *)sym)->LenTemp = lenTemp;
-					Node *lenExpr = TranslateTree( ((SymbolFieldVarLen *)sym)->LenExpr );
-					Node *len = m_CodeGen.UnOp(LOCST, lenExpr, lenTemp);
-					offset = m_CodeGen.BinOp(ADD, offset, len);
+					SymbolFieldVarLen *varLenFieldSym = static_cast<SymbolFieldVarLen*>(*innerField);
+					SymbolTemp *lenTemp = varLenFieldSym->LenTemp;
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD,m_CodeGen.UnOp(LOCLD,lenTemp),m_CodeGen.UnOp(LOCLD,offsetAux)), offsetAux));
+
 				}
 				break;
 			case PDL_FIELD_BITFIELD:
@@ -1944,142 +2043,28 @@ void IRLowering::TranslateFieldDef(Node *node)
 				break;
 			case PDL_FIELD_TOKEND:
 				{
-#ifdef USE_REGEX
-					Node *len = m_CodeGen.TermNode(PUSH, (uint32) 0);
-
-					SymbolTemp *lenTemp = m_CodeGen.NewTemp(sym->Name + string("_len"), m_CompUnit.NumLocals);
-					((SymbolFieldTokEnd *)sym)->LenTemp = lenTemp;
-
-
-					if(((SymbolFieldTokEnd *)sym)->EndTok!=NULL)
-					{
-
-	                    SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldTokEnd *)sym)->EndTok));
-
-						SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
-						m_GlobalSymbols.StoreRegExEntry(regExp);
-
-						//set id
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.TermNode(PUSH, regExp->Id),
-						new SymbolLabel(LBL_ID, 0, string("regexp")),
-						REGEX_OUT_PATTERN_ID));
-
-						// set buffer offset
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						TranslateTree(regExp->Offset),
-						new SymbolLabel(LBL_ID, 0, string("regexp")),
-						REGEX_OUT_BUF_OFFSET));
-
-						// calculate and set buffer length
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
-						new SymbolLabel(LBL_ID, 0, string("regexp")),
-						REGEX_OUT_BUF_LENGTH));
-
-
-						// find the pattern
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
-
-						// check the result
-						Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
-
-						Node *leftExpr = validNode;
-						Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
-						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
-						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
-
-						// if there aren't any matches the field doesn't exist, don't update the offset
-						m_CodeGen.LabelStatement(labelFalse);
-							break;
-						m_CodeGen.LabelStatement(labelTrue);
-							m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-							Node *offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-							len=m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(SUB,offsetNode,offset), lenTemp);
-					}
-					else if(((SymbolFieldTokEnd *)sym)->EndRegEx!=NULL)
-					{
-						SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldTokEnd *)sym)->EndRegEx));
-
-						SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
-						m_GlobalSymbols.StoreRegExEntry(regExp);
-
-						//set id
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.TermNode(PUSH, regExp->Id),
-						new SymbolLabel(LBL_ID, 0, string("regexp")),
-						REGEX_OUT_PATTERN_ID));
-
-						// set buffer offset
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						TranslateTree(regExp->Offset),
-						new SymbolLabel(LBL_ID, 0, string("regexp")),
-						REGEX_OUT_BUF_OFFSET));
-
-						// calculate and set buffer length
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
-						new SymbolLabel(LBL_ID, 0, string("regexp")),
-						REGEX_OUT_BUF_LENGTH));
-
-
-						// find the pattern
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
-
-						// check the result
-						Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
-
-						Node *leftExpr = validNode;
-						Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
-						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
-						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
-
-						// if there aren't any matches the field doesn't exist, don't update the offset
-						m_CodeGen.LabelStatement(labelFalse);
-							break;
-						m_CodeGen.LabelStatement(labelTrue);
-							m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-							Node *offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-							len=m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(SUB,offsetNode,offset), lenTemp);
-					}
-					else
-						break;
-
-					if(((SymbolFieldTokEnd *)sym)->EndOff!=NULL)
-					{
-						Node *offExpr = TranslateTree( ((SymbolFieldTokEnd *)sym)->EndOff );
-						len = m_CodeGen.UnOp(LOCST, offExpr, lenTemp);
-					}
-
-					offset=m_CodeGen.BinOp(ADD,offset,len);
-
-					if(((SymbolFieldTokEnd *)sym)->EndDiscard!=NULL)
-					{
-						SymbolTemp *discTemp = m_CodeGen.NewTemp(sym->Name + string("_disc"), m_CompUnit.NumLocals);
-						((SymbolFieldTokEnd *)sym)->DiscTemp = discTemp;
-						Node *discExpr = TranslateTree( ((SymbolFieldTokEnd *)sym)->EndDiscard );
-						Node *disc = m_CodeGen.UnOp(LOCST, discExpr, discTemp);
-						offset=m_CodeGen.BinOp(ADD,offset,disc);
-					}
-
+#ifdef USE_REGEX				
+					SymbolFieldTokEnd *tokendFieldSym = static_cast<SymbolFieldTokEnd*>(*innerField);
+					SymbolTemp *lenTemp = tokendFieldSym->LenTemp;					
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD,m_CodeGen.UnOp(LOCLD,lenTemp),m_CodeGen.UnOp(LOCLD,offsetAux)), offsetAux));
+				break;
 #else
 	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
 	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
 	break;
 #endif
 				}
-				break;
 
 			case PDL_FIELD_TOKWRAP:
 				{
+					nbASSERT(false,"Inner tokenwrap fields are not supported");
+					//the following code is probably wrong
 #ifdef USE_REGEX
-					Node *begin=offset;
-					Node *len = m_CodeGen.TermNode(PUSH, (uint32) 0);
-					Node *new_begin = m_CodeGen.TermNode(PUSH, (uint32) 0);
-					Node *offsetNode=offset;
-					Node *lenRegEx;
+					MIRNode *begin=offset;
+					MIRNode *len = m_CodeGen.TermNode(PUSH, (uint32) 0);
+					MIRNode *new_begin = m_CodeGen.TermNode(PUSH, (uint32) 0);
+					MIRNode *offsetNode=offset;
+					MIRNode *lenRegEx;
 
 
 					SymbolTemp *lenTemp = m_CodeGen.NewTemp(sym->Name + string("_len"), m_CompUnit.NumLocals);
@@ -2090,7 +2075,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 					{
 						SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldTokWrap *)sym)->BeginTok));
 
-						SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+						SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 						m_GlobalSymbols.StoreRegExEntry(regExp);
 
 						//set id
@@ -2101,13 +2086,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 						// set buffer offset
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						TranslateTree(regExp->Offset),
+						TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_OFFSET));
 
 						// calculate and set buffer length
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(static_cast<HIRNode*>(regExp->Offset) )),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_LENGTH));
 
@@ -2116,10 +2101,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 						// check the result
-						Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+						MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-						Node *leftExpr = validNode;
-						Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32) 0);
+						MIRNode *leftExpr = validNode;
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32) 0);
 						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -2127,7 +2112,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 						// if there aren't any matches the field doesn't exist, don't update the offset
 						m_CodeGen.LabelStatement(labelFalse);
 							break;
-
+	
 						m_CodeGen.LabelStatement(labelTrue);
 							m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
 							offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
@@ -2146,7 +2131,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 					{
 						SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldTokWrap *)sym)->BeginRegEx));
 
-						SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+						SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 						m_GlobalSymbols.StoreRegExEntry(regExp);
 
 						//set id
@@ -2157,13 +2142,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 						// set buffer offset
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						TranslateTree(regExp->Offset),
+						TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_OFFSET));
 
 						// calculate and set buffer length
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(static_cast<HIRNode*>(regExp->Offset) )),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_LENGTH));
 
@@ -2172,10 +2157,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 						// check the result
-						Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+						MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-						Node *leftExpr = validNode;
-						Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32) 0);
+						MIRNode *leftExpr = validNode;
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32) 0);
 						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -2196,7 +2181,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 					{
 						SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldTokWrap *)sym)->EndTok));
 						//Search the endtoken from the first byte after th end of begintoken
-						SymbolRegEx *regExp = new SymbolRegEx(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+						SymbolRegExPDL *regExp = new SymbolRegExPDL(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 						m_GlobalSymbols.StoreRegExEntry(regExp);
 
 						//set id
@@ -2207,13 +2192,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 						// set buffer offset
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						TranslateTree(regExp->Offset),
+						TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_OFFSET));
 
 						// calculate and set buffer length
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(static_cast<HIRNode*>(regExp->Offset) )),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_LENGTH));
 
@@ -2222,10 +2207,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 						// check the result
-						Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+						MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-						Node *leftExpr = validNode;
-						Node *rightExpr = m_CodeGen.TermNode(PUSH,(uint32)0);
+						MIRNode *leftExpr = validNode;
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH,(uint32)0);
 						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -2242,7 +2227,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 					{
 						SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldTokWrap *)sym)->EndRegEx));
 
-						SymbolRegEx *regExp = new SymbolRegEx(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+						SymbolRegExPDL *regExp = new SymbolRegExPDL(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 						m_GlobalSymbols.StoreRegExEntry(regExp);
 
 						//set id
@@ -2253,13 +2238,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 						// set buffer offset
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						TranslateTree(regExp->Offset),
+						TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_OFFSET));
 
 						// calculate and set buffer length
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+						m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(static_cast<HIRNode*>(regExp->Offset) )),
 						new SymbolLabel(LBL_ID, 0, string("regexp")),
 						REGEX_OUT_BUF_LENGTH));
 
@@ -2268,10 +2253,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 						// check the result
-						Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+						MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-						Node *leftExpr = validNode;
-						Node *rightExpr = m_CodeGen.TermNode(PUSH,(uint32)0);
+						MIRNode *leftExpr = validNode;
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH,(uint32)0);
 						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -2287,15 +2272,16 @@ void IRLowering::TranslateFieldDef(Node *node)
 					else
 						break;
 
+
 					if(((SymbolFieldTokWrap *)sym)->BeginOff!=NULL)
 					{
-					new_begin = TranslateTree( ((SymbolFieldTokWrap *)sym)->BeginOff );
+					new_begin = TranslateTree( static_cast<HIRNode*>(((SymbolFieldTokWrap *)sym)->BeginOff ));
 					begin=m_CodeGen.BinOp(ADD,offset,new_begin);
 					}
 
 					if(((SymbolFieldTokWrap *)sym)->EndOff!=NULL)
 					{
-						Node *offExpr = TranslateTree( ((SymbolFieldTokWrap *)sym)->EndOff );
+						MIRNode *offExpr = TranslateTree(static_cast<HIRNode*>( ((SymbolFieldTokWrap *)sym)->EndOff ));
 						len = m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(SUB,m_CodeGen.BinOp(ADD,offExpr,offset),begin), lenTemp);
 
 					}
@@ -2306,146 +2292,50 @@ void IRLowering::TranslateFieldDef(Node *node)
 					{
 						SymbolTemp *discTemp = m_CodeGen.NewTemp(sym->Name + string("_disc"), m_CompUnit.NumLocals);
 						((SymbolFieldTokWrap *)sym)->DiscTemp = discTemp;
-						Node *discExpr = TranslateTree( ((SymbolFieldTokWrap *)sym)->EndDiscard );
-						Node *disc = m_CodeGen.UnOp(LOCST, discExpr, discTemp);
+						MIRNode *discExpr = TranslateTree( static_cast<HIRNode*>(((SymbolFieldTokWrap *)sym)->EndDiscard ));
+						MIRNode *disc = m_CodeGen.UnOp(LOCST, discExpr, discTemp);
 						offset=m_CodeGen.BinOp(ADD,offset,disc);
 					}
+				break;
 #else
 	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
 	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
 	break;
 #endif
 				}
-				break;
 
 
 			case PDL_FIELD_LINE:
 				{
-//#ifdef USE_REGEX
-					SymbolTemp *lenTemp = m_CodeGen.NewTemp(sym->Name + string("_len"), m_CompUnit.NumLocals);
-					((SymbolFieldLine *)sym)->LenTemp = lenTemp;
-
-
-                    SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldLine *)sym)->EndTok));
-
-					SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
-					m_GlobalSymbols.StoreRegExEntry(regExp);
-
-					//set id
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-					m_CodeGen.TermNode(PUSH, regExp->Id),
-					new SymbolLabel(LBL_ID, 0, string("regexp")),
-					REGEX_OUT_PATTERN_ID));
-
-					// set buffer offset
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-					TranslateTree(regExp->Offset),
-					new SymbolLabel(LBL_ID, 0, string("regexp")),
-					REGEX_OUT_BUF_OFFSET));
-
-					// calculate and set buffer length
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-					m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
-					new SymbolLabel(LBL_ID, 0, string("regexp")),
-					REGEX_OUT_BUF_LENGTH));
-
-
-					// find the pattern
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
-
-					// check the result
-					Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
-
-					Node *leftExpr = validNode;
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
-
-					// if there aren't any matches the field doesn't exist, don't update the offset
-					m_CodeGen.LabelStatement(labelFalse);
-						break;
-
-					m_CodeGen.LabelStatement(labelTrue);
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-					m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-					Node *lenRegEx= m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_LENGTH_FOUND);
-					offset=m_CodeGen.BinOp(ADD,m_CodeGen.UnOp(LOCST,lenRegEx, lenTemp),offset);
-
-
-//#else
-//	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
-//	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
-//	break;
-//#endif
-
+#ifdef USE_REGEX
+					SymbolFieldLine *lineFieldSym = static_cast<SymbolFieldLine*>(*innerField);
+					SymbolTemp *lenTemp = lineFieldSym->LenTemp;
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD,m_CodeGen.UnOp(LOCLD,lenTemp),m_CodeGen.UnOp(LOCLD,offsetAux)), offsetAux));
+			break;	
+#else
+	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
+	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
+	break;
+#endif
 				}
-				break;
-
+		
 				case PDL_FIELD_PATTERN:
 				{
-//#ifdef USE_REGEX
-					SymbolTemp *lenTemp = m_CodeGen.NewTemp(sym->Name + string("_len"), m_CompUnit.NumLocals);
-					((SymbolFieldPattern *)sym)->LenTemp = lenTemp;
-
-
-                    SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)((SymbolFieldPattern *)sym)->Pattern));
-
-					SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
-					m_GlobalSymbols.StoreRegExEntry(regExp);
-
-					//set id
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-					m_CodeGen.TermNode(PUSH, regExp->Id),
-					new SymbolLabel(LBL_ID, 0, string("regexp")),
-					REGEX_OUT_PATTERN_ID));
-
-					// set buffer offset
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-					TranslateTree(regExp->Offset),
-					new SymbolLabel(LBL_ID, 0, string("regexp")),
-					REGEX_OUT_BUF_OFFSET));
-
-					// calculate and set buffer length
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-					m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
-					new SymbolLabel(LBL_ID, 0, string("regexp")),
-					REGEX_OUT_BUF_LENGTH));
-
-
-					// find the pattern
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
-
-					// check the result
-					Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
-
-					Node *leftExpr = validNode;
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
-
-					// if there aren't any matches the field doesn't exist, don't update the offset
-					m_CodeGen.LabelStatement(labelFalse);
-						break;
-
-					m_CodeGen.LabelStatement(labelTrue);
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-						//Node *offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-						Node *lenRegEx= m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_LENGTH_FOUND);
-							offset=m_CodeGen.BinOp(ADD,m_CodeGen.UnOp(LOCST,lenRegEx, lenTemp),offset);
-
-//#else
-//	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
-//	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
-//	break;
-//#endif
+#ifdef USE_REGEX
+					SymbolFieldPattern *patternFieldSym = static_cast<SymbolFieldPattern*>(*innerField);
+					SymbolTemp *lenTemp = patternFieldSym->LenTemp;
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD,m_CodeGen.UnOp(LOCLD,lenTemp),m_CodeGen.UnOp(LOCLD,offsetAux)), offsetAux));
+				break;
+#else
+	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
+	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
+	break;
+#endif
 
 				}
-				break;
-			//the eatall field must be the last innerfield
+				
 			case PDL_FIELD_EATALL:
-				nbASSERT(false, "CANNOT BE HERE");
+				nbASSERT(false, "The \"eatall\" field must be the last innerfield");
 				break;
 			default:
 				break;
@@ -2454,16 +2344,21 @@ void IRLowering::TranslateFieldDef(Node *node)
 			innerField++;
 		}
 
-		if (iOffset>0)
-			offset = m_CodeGen.BinOp(ADD, offset, m_CodeGen.TermNode(PUSH, iOffset));
+		if(offsetIncremented)
+			offset = m_CodeGen.UnOp(LOCLD, offsetAux );			
 	}
-
+	
 	switch(fieldSym->FieldType)
 	{
-	case PDL_FIELD_FIXED:
+	case PDL_FIELD_FIXED: 
 		{
-			SymbolFieldFixed *fixedFieldSym = (SymbolFieldFixed*)sym;
+			SymbolFieldFixed *fixedFieldSym = static_cast<SymbolFieldFixed*>(sym);
+
+			SymbolTemp *lenTemp = m_CodeGen.NewTemp(fixedFieldSym->Name + string("_len"), m_CompUnit.NumLocals); 
+			fixedFieldSym->LenTemp = lenTemp;
 			
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.TermNode(PUSH,fixedFieldSym->Size), fixedFieldSym->LenTemp));		
+	
 			if (usedAsInt)
 			{
 				if (intCompatible==false)
@@ -2474,7 +2369,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 					if (sym->DependsOn==NULL)
 					{
 						//$add = $currentoffset + size
-						Node *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Size));
+						MIRNode *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Size));
 						//$currentoffset = $add
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 					}
@@ -2488,8 +2383,8 @@ void IRLowering::TranslateFieldDef(Node *node)
 				}
 
 				//$fld_value = load($currentoffset)
-				Node *field_ind=offset;
-				Node *field_value=this->GenMemLoad(field_ind, fixedFieldSym->Size);
+				MIRNode *field_ind=offset;
+				MIRNode *field_value=this->GenMemLoad(field_ind, fixedFieldSym->Size);
 				if (fixedFieldSym->Size==3)
 				{
 					// the field size is 3 bytes, you should align the value to 4 bytes (xx.xx.xx.00 -> 00.xx.xx.xx)
@@ -2536,107 +2431,170 @@ void IRLowering::TranslateFieldDef(Node *node)
 			if (fixedFieldSym->DependsOn==NULL)
 			{
 				//$add = $currentoffset + size
-				Node *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Size));
+				MIRNode *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Size));
 				//$currentoffset = $add
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 			}
 
-			if (fixedFieldSym->ToExtract)
+			if(genExtractionCode) 
 			{
-				if(fixedFieldSym->MultiProto)
-				{
-					m_CodeGen.CommentStatement(string("Calcolo offset Info-Partition per header ") + fixedFieldSym->Protocol->Name);
-					Node *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, fixedFieldSym->HeaderCount), m_CodeGen.TermNode(PUSH, 4)),
-						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, fixedFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
-					SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, fixedFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, fixedFieldSym->Size), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+				//if we want to extract each field, we have to generate little different code
+				if (!fixedFieldSym->Protocol->ExAllfields && fixedFieldSym->ToExtract)
+				{			
+					if(fixedFieldSym->MultiProto)
+					{
+						//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiProto - Test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiPtoto_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiProto_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-					m_CodeGen.CommentStatement(string("Incremento HeaderCounter per header ") + fixedFieldSym->Name);
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->HeaderCount), m_CodeGen.TermNode(PUSH, 1)), fixedFieldSym->HeaderCount));
-					FieldsList_t::iterator f = fixedFieldSym->MultiFields.begin();
-					for (; f != fixedFieldSym->MultiFields.end(); f++)
-					{	//store the number of fields extracted
-						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, fixedFieldSym->HeaderCount), m_CodeGen.TermNode(PUSH, (*f)->Position)));
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + fixedFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, fixedFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, fixedFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, fixedFieldSym->Size), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + fixedFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, fixedFieldSym->Position)));
+						m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)),fixedFieldSym->FieldCount));
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+					
+					else if(fixedFieldSym->MultiField)
+					{
+						//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiField - test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + fixedFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, fixedFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, fixedFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, fixedFieldSym->Size), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), fixedFieldSym->FieldCount));
+						m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + fixedFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, fixedFieldSym->Position)));
+						
+						m_CodeGen.LabelStatement(labelFalse);							
+					}
+
+					else if (fixedFieldSym->HeaderIndex > 0)
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)fixedFieldSym->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + fixedFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,fixedFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->Size), m_CodeGen.TermNode(PUSH, (fixedFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), fixedFieldSym->FieldCount));
+
+						m_CodeGen.LabelStatement(labelFalse);
+					}	
+
+					else 
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);						
+						m_CodeGen.CommentStatement(string("Extract ") + fixedFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,fixedFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->Size), m_CodeGen.TermNode(PUSH, (fixedFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), fixedFieldSym->FieldCount));					
+						
+						m_CodeGen.LabelStatement(labelFalse);
 					}
 				}
-					
-				else if(fixedFieldSym->MultiField)
-				{
-					m_CodeGen.CommentStatement(string("MultiField - test estrazione"));
-					Node *leftExpr = m_CodeGen.TermNode(LOCLD, fixedFieldSym->ExtractG);
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-					m_CodeGen.LabelStatement(labelTrue);
-					m_CodeGen.CommentStatement(string("Calcolo offset Info-Partition per MultiField"));
-					Node *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
-						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, fixedFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
-					SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, fixedFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, fixedFieldSym->Size), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
-					m_CodeGen.CommentStatement(string("Incremento variabile FieldCount per MultiField"));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), fixedFieldSym->FieldCount));
-
-					m_CodeGen.LabelStatement(labelFalse);
-				}
-
-				else if (fixedFieldSym->HeaderIndex > 0)
-				{
-					m_CodeGen.CommentStatement(string("Test HeaderIndexing"));
-					Node *leftExpr = m_CodeGen.TermNode(LOCLD, fixedFieldSym->ExtractG);
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)fixedFieldSym->HeaderIndex - 1);//sottraggo 1 perch� l'indice Extract parte da 0
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
-
-					m_CodeGen.LabelStatement(labelTrue);
-					m_CodeGen.CommentStatement(string("HeaderIndex - header ") + fixedFieldSym->Protocol->Name + string(" da estrarre"));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,fixedFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Position)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->Size), m_CodeGen.TermNode(PUSH, (fixedFieldSym->Position)+2)));
-
-					m_CodeGen.LabelStatement(labelFalse);
-					m_CodeGen.CommentStatement(string("HeaderIndex - header ") + fixedFieldSym->Protocol->Name + string(" da ignorare"));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->ExtractG), m_CodeGen.TermNode(PUSH, 1)), fixedFieldSym->ExtractG));
-				}	
-
-				else
-				{
-					m_CodeGen.CommentStatement(string("Test FirstExtract per il protocollo ") + fixedFieldSym->Protocol->Name);
-					Node *leftExpr = m_CodeGen.TermNode(LOCLD, fixedFieldSym->ExtractG);
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)1);
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
-
-					m_CodeGen.LabelStatement(labelFalse);
-					m_CodeGen.CommentStatement(string("Extract - estrarre prima occorrenza header ") + fixedFieldSym->Protocol->Name);
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,fixedFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, fixedFieldSym->Position)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->Size), m_CodeGen.TermNode(PUSH, (fixedFieldSym->Position)+2)));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.TermNode(PUSH,(uint32)1), fixedFieldSym->ExtractG)); //Extract = 1
-
-					m_CodeGen.LabelStatement(labelTrue);
-				}
-			}
-
-			if(fixedFieldSym->Protocol->ExAllfields)
-			{  
-				  //if the field hasn,t valid PDLFieldInfo is a bit_union field and it contains bitfields
-				if(fixedFieldSym->PDLFieldInfo!=NULL)
+				if(fixedFieldSym->Protocol->ExAllfields) 
 				{  
-					Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->ID), positionId));
-					Node *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,fixedFieldSym->IndexTemp), positionOff));
-					Node *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->Size), positionLen));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),fixedFieldSym->Protocol->position));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),fixedFieldSym->Protocol->NExFields));
-				  }
+					//if the field hasn't valid PDLFieldInfo is a bit_union field and it contains bitfields
+					if(fixedFieldSym->PDLFieldInfo!=NULL)
+					{  
+					
+						// [icerrato] we have to obtain the symbol for allfields
+						SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+						nbASSERT(symAllFields!=NULL,"There is an error");
+					
+						nbASSERT(!fixedFieldSym->MultiField,"ERROR: this situation should be avoided by the grammar");
+					
+						SymbolLabel *labelFalse = NULL;
+						if(!symAllFields->MultiProto)
+						{
+							//[icerrato] test if we have to extract
+							m_CodeGen.CommentStatement(string(" Allfields - Test for field ") + fixedFieldSym->Name);
+							MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+							MIRNode *rightExpr = NULL;
+							if(symAllFields->HeaderIndex==0)
+								rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+							else
+								rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+							SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+							labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+							m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+						
+							//[icerrato]label for the extraction
+							m_CodeGen.LabelStatement(labelTrue);
+						}
+						
+						MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->ID), positionId));
+						MIRNode *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,fixedFieldSym->IndexTemp), positionOff));
+						MIRNode *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,fixedFieldSym->Size), positionLen));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),fixedFieldSym->Protocol->position));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, fixedFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),fixedFieldSym->Protocol->NExFields));
+						if(!symAllFields->MultiProto)
+						{
+							//[icerrato]label needed to avoid the extraction
+							m_CodeGen.LabelStatement(labelFalse);
+						}
+					  }
+				}
+			
 			}
 
 		}break;
@@ -2646,118 +2604,184 @@ void IRLowering::TranslateFieldDef(Node *node)
 			SymbolFieldVarLen *varlenFieldSym = (SymbolFieldVarLen*)sym;
 			SymbolTemp *indexTemp = m_CodeGen.NewTemp(varlenFieldSym->Name + string("_ind"), m_CompUnit.NumLocals);
 			varlenFieldSym->IndexTemp = indexTemp;
-			if (varlenFieldSym->LenTemp==NULL)
-			{
-				SymbolTemp *lenTemp = m_CodeGen.NewTemp(varlenFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
-				varlenFieldSym->LenTemp = lenTemp;
-			}
+
+			SymbolTemp *lenTemp = m_CodeGen.NewTemp(varlenFieldSym->Name + string("_len"), m_CompUnit.NumLocals); 
+			varlenFieldSym->LenTemp = lenTemp;
 
 			//$fld_index = $currentoffset
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));
-			Node *lenExpr = TranslateTree(varlenFieldSym->LenExpr);
+			MIRNode *lenExpr = TranslateTree(static_cast<HIRNode*>(varlenFieldSym->LenExpr));
+			
 			//$fld_len = lenExpr
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, lenExpr, varlenFieldSym->LenTemp));
 
 			if (sym->DependsOn==NULL)
 			{
 				//$add = $currentoffset + $len
-				Node *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, varlenFieldSym->LenTemp));
+				MIRNode *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, varlenFieldSym->LenTemp));
 				//$currentoffset = $add
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 			}
-
-			if(varlenFieldSym->ToExtract)
+			
+			if(genExtractionCode)
 			{
-				if(varlenFieldSym->MultiProto)
+				if(varlenFieldSym->ToExtract && ! varlenFieldSym->Protocol->ExAllfields) //[icerrato]
 				{
-					m_CodeGen.CommentStatement(string("Calcolo offset Info-Partition per header ") + varlenFieldSym->Protocol->Name);
-					Node *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, varlenFieldSym->HeaderCount), m_CodeGen.TermNode(PUSH, 4)),
-						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, varlenFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
-					SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+					if(varlenFieldSym->MultiProto)
+					{
+						//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiProto - Test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-					m_CodeGen.CommentStatement(string("Incremento HeaderCounter per header ") + varlenFieldSym->Name);
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->HeaderCount), m_CodeGen.TermNode(PUSH, 1)), varlenFieldSym->HeaderCount));
-					FieldsList_t::iterator f = varlenFieldSym->MultiFields.begin();
-					for (; f != varlenFieldSym->MultiFields.end(); f++)
-					{	//store the number of fields extracted
-						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->HeaderCount), m_CodeGen.TermNode(PUSH, (*f)->Position)));
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + varlenFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, varlenFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, varlenFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + varlenFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, varlenFieldSym->Position)));
+						m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)),varlenFieldSym->FieldCount));
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else if(varlenFieldSym->MultiField)
+					{
+						//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiField - test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + varlenFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, varlenFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, varlenFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), varlenFieldSym->FieldCount));
+						m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + varlenFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, varlenFieldSym->Position)));
+						
+						m_CodeGen.LabelStatement(labelFalse);				
+					}
+
+					else if(varlenFieldSym->HeaderIndex > 0)
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)varlenFieldSym->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + varlenFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, varlenFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,varlenFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (varlenFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), varlenFieldSym->FieldCount));
+
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else 
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);						
+						m_CodeGen.CommentStatement(string("Extract ") + varlenFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, varlenFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,varlenFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (varlenFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), varlenFieldSym->FieldCount));					
+						
+						m_CodeGen.LabelStatement(labelFalse);
 					}
 				}
 
-				else if(varlenFieldSym->MultiField)
-				{
-					m_CodeGen.CommentStatement(string("MultiField - test estrazione"));
-					Node *leftExpr = m_CodeGen.TermNode(LOCLD, varlenFieldSym->ExtractG);
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+				if(varlenFieldSym->Protocol->ExAllfields)
+				{			
+					//if the field hasn't valid PDLFieldInfo is a bit_union field and it contains bitfields
+					if(varlenFieldSym->PDLFieldInfo!=NULL)
+					{  
+					
+						// [icerrato] we have to obtain the symbol for allfields
 
-					m_CodeGen.LabelStatement(labelTrue);
-					m_CodeGen.CommentStatement(string("Calcolo offset Info-Partition per MultiField"));
-					Node *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
-						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, varlenFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
-					SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, varlenFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
-					m_CodeGen.CommentStatement(string("Incremento variabile FieldCount per MultiField"));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), varlenFieldSym->FieldCount));
-
-					m_CodeGen.LabelStatement(labelFalse);
+						SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+						nbASSERT(symAllFields!=NULL,"There is an error");
+					
+						nbASSERT(!varlenFieldSym->MultiField,"ERROR: this situation should be avoided by the grammar");
+					
+						SymbolLabel *labelFalse = NULL;
+						if(!symAllFields->MultiProto)
+						{
+							//[icerrato] test if we have to extract
+							m_CodeGen.CommentStatement(string(" Allfields - Test for field ") + varlenFieldSym->Name);
+							MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+							MIRNode *rightExpr = NULL;
+							if(symAllFields->HeaderIndex==0)
+								rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+							else
+								rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+							SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+							labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+							m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+						
+							//[icerrato]label for the extraction
+							m_CodeGen.LabelStatement(labelTrue);
+						}
+						
+						MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,varlenFieldSym->ID), positionId));
+						MIRNode *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->IndexTemp), positionOff));
+						MIRNode *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,varlenFieldSym->LenTemp), positionLen));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),varlenFieldSym->Protocol->position));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),varlenFieldSym->Protocol->NExFields));
+						if(!symAllFields->MultiProto)
+						{
+							//[icerrato]label needed to avoid the extraction
+							m_CodeGen.LabelStatement(labelFalse);
+						}
+					  
+					}
 				}
-
-				else if(varlenFieldSym->HeaderIndex > 0)
-				{
-					m_CodeGen.CommentStatement(string("Test HeaderIndexing"));
-					Node *leftExpr = m_CodeGen.TermNode(LOCLD, varlenFieldSym->ExtractG);
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)varlenFieldSym->HeaderIndex - 1);//sottraggo 1 perch� l'indice Extract parte da 0
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
-
-					m_CodeGen.LabelStatement(labelTrue);
-					m_CodeGen.CommentStatement(string("HeaderIndex - header ") + varlenFieldSym->Protocol->Name + string(" da estrarre"));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, varlenFieldSym->Position)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (varlenFieldSym->Position)+2)));
-
-					m_CodeGen.LabelStatement(labelFalse);
-					m_CodeGen.CommentStatement(string("HeaderIndex - header ") + varlenFieldSym->Protocol->Name + string(" da ignorare"));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->ExtractG), m_CodeGen.TermNode(PUSH, 1)), varlenFieldSym->ExtractG));
-				}
-
-				else // FirstExtract
-				{
-					m_CodeGen.CommentStatement(string("Test FirstExtract per il protocollo ") + varlenFieldSym->Protocol->Name);
-					Node *leftExpr = m_CodeGen.TermNode(LOCLD, varlenFieldSym->ExtractG);
-					Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)1);
-					SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
-					SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
-					m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
-
-					m_CodeGen.LabelStatement(labelFalse);
-					m_CodeGen.CommentStatement(string("Extract - estrarre prima occorrenza header ") + varlenFieldSym->Protocol->Name);
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, varlenFieldSym->Position)));
-					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (varlenFieldSym->Position)+2)));
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.TermNode(PUSH,(uint32)1), varlenFieldSym->ExtractG)); //Extract = 1
-
-					m_CodeGen.LabelStatement(labelTrue);
-				}
-			}
-
-			if(varlenFieldSym->Protocol->ExAllfields)
-			{
-				Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,varlenFieldSym->ID), positionId));
-				Node *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->IndexTemp), positionOff));
-				Node *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,varlenFieldSym->LenTemp), positionLen));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),varlenFieldSym->Protocol->position));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, varlenFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),varlenFieldSym->Protocol->NExFields));
 			}
 		}break;
 
@@ -2765,206 +2789,355 @@ void IRLowering::TranslateFieldDef(Node *node)
 		{
 			SymbolFieldBitField* bitField=(SymbolFieldBitField*)sym;
 
-			if(bitField->ToExtract)
+			if(genExtractionCode)
 			{
-				nbASSERT(bitField->DependsOn != NULL, "depends-on pointer should be != NULL");
-				Node *memOffs(0);
-				uint32 mask=bitField->Mask;
-				SymbolFieldContainer *container=(SymbolFieldContainer *)bitField->DependsOn;
-
-				// search the fixed field root to get the size
-				while (container->FieldType!=PDL_FIELD_FIXED)
+				if(!bitField->Protocol->ExAllfields && bitField->ToExtract)// [icerrato]
 				{
-					nbASSERT(container->FieldType==PDL_FIELD_BITFIELD, "Only a bit field can have a parent field");
+					nbASSERT(bitField->DependsOn != NULL, "depends-on pointer should be != NULL");
+					MIRNode *memOffs(0); 
+					uint32 mask=bitField->Mask;
+					SymbolFieldContainer *container=(SymbolFieldContainer *)bitField->DependsOn;
 
-					// and the mask with the parent mask
-					mask=mask & ((SymbolFieldBitField *)container)->Mask;
-
-					container=((SymbolFieldBitField *)container)->DependsOn;
-				}
-
-				SymbolFieldContainer *fieldContainer=(SymbolFieldContainer *)this->m_GlobalSymbols.LookUpProtoField(this->m_Protocol, container);
-				SymbolFieldFixed *fixed=(SymbolFieldFixed *)fieldContainer;
-
-				if(fixed->IndexTemp != NULL)
-				{
-					// after applying the bit mask, you should also shift the field to align the actual value
-					uint8 shift=0;
-					uint32 tMask=mask;
-
-					while ((tMask & 1)==0)
+					// search the fixed field root to get the size
+					while (container->FieldType!=PDL_FIELD_FIXED)
 					{
-						shift++;
-						tMask=tMask>>1;
+						nbASSERT(container->FieldType==PDL_FIELD_BITFIELD, "Only a bit field can have a parent field");
+
+						// and the mask with the parent mask
+						mask=mask & ((SymbolFieldBitField *)container)->Mask;
+
+						container=((SymbolFieldBitField *)container)->DependsOn;
 					}
 
-					memOffs = m_CodeGen.TermNode(LOCLD, fixed->IndexTemp);
-					Node *memLoad = GenMemLoad(memOffs, fixed->Size);
-					Node *_field = m_CodeGen.BinOp(AND, memLoad, m_CodeGen.TermNode(PUSH, mask));
+					SymbolFieldContainer *fieldContainer=(SymbolFieldContainer *)this->m_GlobalSymbols.LookUpProtoField(this->m_Protocol, container);
+					SymbolFieldFixed *fixed=(SymbolFieldFixed *)fieldContainer;
 
-					if (bitField->MultiProto) 
+					if(fixed->IndexTemp != NULL)
 					{
-						m_CodeGen.CommentStatement(string("Calcolo offset Info-Partition per header ") + bitField->Protocol->Name);
-						Node *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, bitField->HeaderCount), m_CodeGen.TermNode(PUSH, 4)),
+						// after applying the bit mask, you should also shift the field to align the actual value
+						uint8 shift=0;
+						uint32 tMask=mask;
+
+						while ((tMask & 1)==0)
+						{
+							shift++;
+							tMask=tMask>>1;
+						}
+
+						memOffs = m_CodeGen.TermNode(LOCLD, fixed->IndexTemp);
+						MIRNode *memLoad = GenMemLoad(memOffs, fixed->Size);
+						MIRNode *_field = m_CodeGen.BinOp(AND, memLoad, m_CodeGen.TermNode(PUSH, mask));
+
+						if (bitField->MultiProto) 
+						{
+							//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+							m_CodeGen.CommentStatement(string("MultiProto - Test"));
+							MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, bitField->FieldCount);
+							MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+							SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+							SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+							m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+							m_CodeGen.LabelStatement(labelTrue);
+							m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + bitField->Name);
+							MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
 							m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, bitField->Position), m_CodeGen.TermNode(PUSH, 4)));
-						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
-					
-						if (shift>0)
-						{   
-							Node *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
-						}
-						else
-						{
-							Node *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
-						}
-						m_CodeGen.CommentStatement(string("Incremento HeaderCounter per header ") + bitField->Name);
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->HeaderCount), m_CodeGen.TermNode(PUSH, 1)), bitField->HeaderCount));
-						FieldsList_t::iterator f = bitField->MultiFields.begin();
-						for (; f != bitField->MultiFields.end(); f++)
-						{	//store the number of fields extracted
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, bitField->HeaderCount), m_CodeGen.TermNode(PUSH, (*f)->Position)));
-						}
-					}
-
-					else if (bitField->MultiField)
-					{
-						m_CodeGen.CommentStatement(string("MultiField - test estrazione"));
-						Node *leftExpr = m_CodeGen.TermNode(LOCLD, bitField->ExtractG);
-						Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
-						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
-						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
-						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
-
-						m_CodeGen.LabelStatement(labelTrue);
-						m_CodeGen.CommentStatement(string("Calcolo offset Info-Partition per MultiField"));
-						Node *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
-							m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, bitField->Position), m_CodeGen.TermNode(PUSH, 4)));
-						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
-						if (shift>0)
-						{   
-							Node *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
-						}
-						else
-						{
-							Node *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
-						}
-						m_CodeGen.CommentStatement(string("Incremento variabile FieldCount per MultiField"));
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, 1)), bitField->FieldCount));
-
-						m_CodeGen.LabelStatement(labelFalse);
-					}
-
-					else if(bitField->HeaderIndex > 0)
-					{
-						m_CodeGen.CommentStatement(string("Test HeaderIndexing"));
-						Node *leftExpr = m_CodeGen.TermNode(LOCLD, bitField->ExtractG);
-						Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)bitField->HeaderIndex - 1);//sottraggo 1 perch� l'indice Extract parte da 0
-						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
-						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
-						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
-
-						m_CodeGen.LabelStatement(labelTrue);
-						m_CodeGen.CommentStatement(string("HeaderIndex - header ") + bitField->Protocol->Name + string(" da estrarre"));
-						if (shift>0)
-						{   
-							Node *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
-						}
-						else
-						{
-							Node *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
-						}
-
-						m_CodeGen.LabelStatement(labelFalse);
-						m_CodeGen.CommentStatement(string("HeaderIndex - header ") + bitField->Protocol->Name + string(" da ignorare"));
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->ExtractG), m_CodeGen.TermNode(PUSH, 1)), bitField->ExtractG));
-					}
-					else
-					{
-						m_CodeGen.CommentStatement(string("Test FirstExtract per il protocollo ") + bitField->Protocol->Name);
-						Node *leftExpr = m_CodeGen.TermNode(LOCLD, bitField->ExtractG);
-						Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)1);
-						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
-						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
-						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
-
-						m_CodeGen.LabelStatement(labelFalse);
-						m_CodeGen.CommentStatement(string("Extract - estrarre prima occorrenza header ") + bitField->Protocol->Name);
-						if (shift>0)
-						{   
-							Node *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
-						}
-						else
-						{
-							Node *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
-							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
-						}
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.TermNode(PUSH,(uint32)1), bitField->ExtractG)); //Extract = 1
-
-						m_CodeGen.LabelStatement(labelTrue);
+							SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+							m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+							if (shift>0)
+							{   
+								MIRNode *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
+							}
+							else
+							{
+								MIRNode *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
+							}
+							m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + bitField->Name + " into the info partition");
+							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, bitField->Position)));
+							m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+							m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, 1)),bitField->FieldCount));
 						
+							m_CodeGen.LabelStatement(labelFalse);
+						}
+
+						else if (bitField->MultiField)
+						{
+							//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+							m_CodeGen.CommentStatement(string("MultiField - test"));
+							MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+							MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+							SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+							SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+							m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+							m_CodeGen.LabelStatement(labelTrue);
+							m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + bitField->Name);
+							MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+							m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, bitField->Position), m_CodeGen.TermNode(PUSH, 4)));
+							SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+							m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+							if (shift>0)
+							{   
+								MIRNode *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
+							}
+							else
+							{
+								MIRNode *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(LOCLD, temp)));
+							}
+							m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+							m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, 1)), bitField->FieldCount));
+							m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + bitField->Name + " into the info partition");
+							m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, bitField->Position)));
+						
+							m_CodeGen.LabelStatement(labelFalse);				
+						}
+
+						else if(bitField->HeaderIndex > 0)
+						{
+							//Two tests are required: on the header instance and on the field instance
+							m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+							MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+							MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)bitField->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+							SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+							SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+							m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+							m_CodeGen.LabelStatement(labelTrueHeader);
+							m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+							MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, bitField->FieldCount);
+							MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+							SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+							m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+							m_CodeGen.LabelStatement(labelTrue);
+							m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + bitField->Name);
+							if (shift>0)
+							{   
+								MIRNode *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
+							}
+							else
+							{
+								MIRNode *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
+							}
+							m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+							m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, 1)), bitField->FieldCount));
+
+							m_CodeGen.LabelStatement(labelFalse);
+						}
+						else
+						{
+							//Two tests are required: on the header instance and on the field instance
+							m_CodeGen.CommentStatement(string("Test on header instance"));
+							MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+							MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+							SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+							SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+							m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+							m_CodeGen.LabelStatement(labelTrueHeader);
+							m_CodeGen.CommentStatement(string("Test on field instance"));
+							MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, bitField->FieldCount);
+							MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+							SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+							m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+							m_CodeGen.LabelStatement(labelTrue);						
+							m_CodeGen.CommentStatement(string("Extract ") + bitField->Name);
+							if (shift>0)
+							{   
+								MIRNode *validation=m_CodeGen.BinOp(ADD,m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)),m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
+							}
+							else
+							{
+								MIRNode *validation=m_CodeGen.BinOp(ADD,_field,m_CodeGen.TermNode(PUSH,0x80000000));
+								m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, validation, m_CodeGen.TermNode(PUSH, bitField->Position)));
+							}
+							m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+							m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->FieldCount), m_CodeGen.TermNode(PUSH, 1)), bitField->FieldCount));					
+						
+							m_CodeGen.LabelStatement(labelFalse);
+						
+						}
 					}
 				}
-			}
 
-			if(bitField->Protocol->ExAllfields)
-			{			
-				Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,bitField->ID), positionId));
-				Node *positionValue= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+				if(bitField->Protocol->ExAllfields)
+				{			
+				/*	nbASSERT(!bitField->MultiField,"ERROR: this situation should be avoided by the grammar");
 				
-				Node *memOffs(0);
-				uint32 mask=bitField->Mask;
-				SymbolFieldContainer *container=(SymbolFieldContainer *)bitField->DependsOn;
-
-				// search the fixed field root to get the size
-				while (container->FieldType!=PDL_FIELD_FIXED)
-				{
-					nbASSERT(container->FieldType==PDL_FIELD_BITFIELD, "Only a bit field can have a parent field");
-
-					// and the mask with the parent mask
-					mask=mask & ((SymbolFieldBitField *)container)->Mask;
-
-					container=((SymbolFieldBitField *)container)->DependsOn;
-				}
-
-								SymbolFieldContainer *fieldContainer=(SymbolFieldContainer *)this->m_GlobalSymbols.LookUpProtoField(this->m_Protocol, container);
-								SymbolFieldFixed *fixed=(SymbolFieldFixed *)fieldContainer;
-
-				if(fixed->IndexTemp != NULL)
-				{
-					// after applying the bit mask, you should also shift the field to align the actual value
-					uint8 shift=0;
-					uint32 tMask=mask;
-
-					while ((tMask & 1)==0)
+					//[icerrato] we have to obtain the symbol related to allfields
+					SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+					
+					SymbolLabel *labelFalse = NULL;
+					if(!symAllFields->MultiProto)
 					{
-						shift++;
-						tMask=tMask>>1;
+						//[icerrato] we have to test if the extraction is needed
+						m_CodeGen.CommentStatement(string("Test FirstExtract for the protocol ") + bitField->Protocol->Name);
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = NULL;
+						if(symAllFields->HeaderIndex==0)
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						else
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);				
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+						labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						//[icerrato] label for the extraction
+						m_CodeGen.LabelStatement(labelTrue);
+					}	
+						
+					MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,bitField->ID), positionId));
+					MIRNode *positionValue= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+				
+					MIRNode *memOffs(0);
+					uint32 mask=bitField->Mask;
+					SymbolFieldContainer *container=(SymbolFieldContainer *)bitField->DependsOn;
+
+					// search the fixed field root to get the size
+					while (container->FieldType!=PDL_FIELD_FIXED)
+					{
+						nbASSERT(container->FieldType==PDL_FIELD_BITFIELD, "Only a bit field can have a parent field");
+
+						// and the mask with the parent mask
+						mask=mask & ((SymbolFieldBitField *)container)->Mask;
+
+						container=((SymbolFieldBitField *)container)->DependsOn;
 					}
 
-					memOffs = m_CodeGen.TermNode(LOCLD, fixed->IndexTemp);
-					Node *memLoad = GenMemLoad(memOffs, fixed->Size);
-					Node *_field = m_CodeGen.BinOp(AND, memLoad, m_CodeGen.TermNode(PUSH, mask));
-					if (shift>0)
-					{   m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)), positionValue));
+									SymbolFieldContainer *fieldContainer=(SymbolFieldContainer *)this->m_GlobalSymbols.LookUpProtoField(this->m_Protocol, container);
+									SymbolFieldFixed *fixed=(SymbolFieldFixed *)fieldContainer;
+
+					if(fixed->IndexTemp != NULL)
+					{
+						// after applying the bit mask, you should also shift the field to align the actual value
+						uint8 shift=0;
+						uint32 tMask=mask;
+
+						while ((tMask & 1)==0)
+						{
+							shift++;
+							tMask=tMask>>1;
+						}
+
+						memOffs = m_CodeGen.TermNode(LOCLD, fixed->IndexTemp);
+						m_CodeGen.CommentStatement("Ciao");
+						MIRNode *memLoad = GenMemLoad(memOffs, fixed->Size);
+						m_CodeGen.CommentStatement("Hello");
+						MIRNode *_field = m_CodeGen.BinOp(AND, memLoad, m_CodeGen.TermNode(PUSH, mask));
+						if (shift>0)
+						{   m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)), positionValue));
+						}
+						else
+						{	m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, _field, positionValue));
+						}
 					}
-					else
-					{	m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, _field, positionValue));
+
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),bitField->Protocol->position));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),bitField->Protocol->NExFields));
+					
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] label needed to avoid the extraction
+					    m_CodeGen.LabelStatement(labelFalse);
 					}
+					*/
+					
+					nbASSERT(!bitField->MultiField,"ERROR: this situation should be avoided by the grammar");
+					// [icerrato] we have to obtain the symbol for allfields
+					SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+					nbASSERT(symAllFields!=NULL,"There is an error");
+				
+					nbASSERT(!bitField->MultiField,"ERROR: this situation should be avoided by the grammar");
+				
+					SymbolLabel *labelFalse = NULL;
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] test if we have to extract
+						m_CodeGen.CommentStatement(string(" Allfields - Test for field ") + bitField->Name);
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = NULL;
+						if(symAllFields->HeaderIndex==0)
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						else
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+						labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+					
+						//[icerrato]label for the extraction
+						m_CodeGen.LabelStatement(labelTrue);
+					}
+					
+					MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,bitField->ID), positionId));
+					MIRNode *positionValue= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+					
+					MIRNode *memOffs(0);
+					uint32 mask=bitField->Mask;
+					SymbolFieldContainer *container=(SymbolFieldContainer *)bitField->DependsOn;
+					
+					// search the fixed field root to get the size
+					while (container->FieldType!=PDL_FIELD_FIXED)
+
+					{
+						nbASSERT(container->FieldType==PDL_FIELD_BITFIELD, "Only a bit field can have a parent field");
+
+						// and the mask with the parent mask
+						mask=mask & ((SymbolFieldBitField *)container)->Mask;
+
+
+						container=((SymbolFieldBitField *)container)->DependsOn;
+					}
+
+									SymbolFieldContainer *fieldContainer=(SymbolFieldContainer *)this->m_GlobalSymbols.LookUpProtoField(this->m_Protocol, container);
+									SymbolFieldFixed *fixed=(SymbolFieldFixed *)fieldContainer;
+
+
+					if(fixed->IndexTemp != NULL)
+					{
+						// after applying the bit mask, you should also shift the field to align the actual value
+						uint8 shift=0;
+						uint32 tMask=mask;
+
+
+						while ((tMask & 1)==0)
+						{
+							shift++;
+							tMask=tMask>>1;
+						}
+
+
+						memOffs = m_CodeGen.TermNode(LOCLD, fixed->IndexTemp);
+						m_CodeGen.CommentStatement("Ciao");
+						MIRNode *memLoad = GenMemLoad(memOffs, fixed->Size);
+						m_CodeGen.CommentStatement("Hello");
+						MIRNode *_field = m_CodeGen.BinOp(AND, memLoad, m_CodeGen.TermNode(PUSH, mask));
+
+						if (shift>0)
+						{   m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(SHR, _field, m_CodeGen.TermNode(PUSH, shift)), positionValue));
+						}
+						else
+						{	m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, _field, positionValue));
+						}
+
+					}
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),bitField->Protocol->position));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),bitField->Protocol->NExFields));
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato]label needed to avoid the extraction
+						m_CodeGen.LabelStatement(labelFalse);
+					}			
 				}
-
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),bitField->Protocol->position));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, bitField->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),bitField->Protocol->NExFields));
-								
 			}
 		
 		}
@@ -2979,41 +3152,40 @@ void IRLowering::TranslateFieldDef(Node *node)
 			*/
 
 			SymbolFieldPadding *paddingFieldSym = (SymbolFieldPadding*)fieldSym;
-			Node *currOffsNode = m_CodeGen.TermNode(LOCLD, currOffsTemp);
-			Node *protoOffsNode = m_CodeGen.TermNode(LOCLD, protoOffsTemp);
+			MIRNode *currOffsNode = m_CodeGen.TermNode(LOCLD, currOffsTemp);
+			MIRNode *protoOffsNode = m_CodeGen.TermNode(LOCLD, protoOffsTemp);
 			//$fld_len = ($currentoffset-$protooffset) MOD $fld_align
-			Node *lenExpr = m_CodeGen.BinOp(MOD, m_CodeGen.BinOp(SUB, currOffsNode, protoOffsNode), m_CodeGen.TermNode(PUSH, paddingFieldSym->Align));
+			MIRNode *lenExpr = m_CodeGen.BinOp(MOD, m_CodeGen.BinOp(SUB, currOffsNode, protoOffsNode), m_CodeGen.TermNode(PUSH, paddingFieldSym->Align));
 			//$add = $currentoffset + $len
-			Node *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), lenExpr);
+			MIRNode *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), lenExpr);
 			//$currentoffset = $add
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 		}break;
 
 	case PDL_FIELD_TOKEND:
 		{
-#ifdef USE_REGEX
+#ifdef USE_REGEX	
 			SymbolFieldTokEnd *tokendFieldSym = (SymbolFieldTokEnd*)sym;
+			
 			SymbolTemp *indexTemp = m_CodeGen.NewTemp(tokendFieldSym->Name + string("_ind"), m_CompUnit.NumLocals);
 			tokendFieldSym->IndexTemp = indexTemp;
-			//$fld_index = $currentoffset
+						
+			//$fld_index = $currentoffsets
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));
+			
 			SymbolTemp *lenTemp;
-			Node *len = m_CodeGen.TermNode(PUSH, (uint32) 0);
+			MIRNode *len = m_CodeGen.TermNode(PUSH, (uint32) 0); 
+			lenTemp = m_CodeGen.NewTemp(tokendFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
+			tokendFieldSym->LenTemp = lenTemp;
 
-			if (tokendFieldSym->LenTemp==NULL)
-			{
-				lenTemp = m_CodeGen.NewTemp(tokendFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
-				tokendFieldSym->LenTemp = lenTemp;
-			}
-
-
-
+			SymbolLabel *len_false = m_CodeGen.NewLabel(LBL_CODE, "if_false");
+		
+			
 			if(tokendFieldSym->EndTok!=NULL)
 			{
-
 				SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)tokendFieldSym->EndTok));
 
-				SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+				SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 				m_GlobalSymbols.StoreRegExEntry(regExp);
 
 				//set id
@@ -3021,46 +3193,48 @@ void IRLowering::TranslateFieldDef(Node *node)
 				m_CodeGen.TermNode(PUSH, regExp->Id),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_PATTERN_ID));
-
+				
 				// set buffer offset
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				TranslateTree(regExp->Offset),
+				m_CodeGen.UnOp(LOCLD,tokendFieldSym->IndexTemp), 
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_OFFSET));
-
+				
 				// calculate and set buffer length
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL),m_CodeGen.UnOp(LOCLD,tokendFieldSym->IndexTemp)),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_LENGTH));
-
 
 				// find the pattern
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 				// check the result
-				Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+				MIRNode *validNode = m_CodeGen.UnOp(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-				Node *leftExpr = validNode;
-				Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+				MIRNode *leftExpr = validNode;
+				MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 				SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 				SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-				m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
-
+				m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
+				
+				
+				
 				// if there aren't any matches the field doesn't exist, don't update the offset
 				m_CodeGen.LabelStatement(labelFalse);
 					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
-					break;
+					m_CodeGen.JumpStatement(JUMPW, len_false); 
+
 				m_CodeGen.LabelStatement(labelTrue);
 					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-					Node *offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-					len=m_CodeGen.BinOp(SUB,offsetNode,offset);
+					len = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
 			}
 			else if(tokendFieldSym->EndRegEx!=NULL)
-			{
+			{ 
 				SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)tokendFieldSym->EndRegEx));
 
-				SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+				SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 				m_GlobalSymbols.StoreRegExEntry(regExp);
 
 				//set id
@@ -3071,13 +3245,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				// set buffer offset
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				TranslateTree(regExp->Offset),
+				m_CodeGen.UnOp(LOCLD,tokendFieldSym->IndexTemp), 
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_OFFSET));
 
 				// calculate and set buffer length
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), m_CodeGen.UnOp(LOCLD,tokendFieldSym->IndexTemp)),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_LENGTH));
 
@@ -3086,10 +3260,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 				// check the result
-				Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+				MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-				Node *leftExpr = validNode;
-				Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+				MIRNode *leftExpr = validNode;
+				MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 				SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 				SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 				m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -3097,48 +3271,41 @@ void IRLowering::TranslateFieldDef(Node *node)
 				// if there aren't any matches the field doesn't exist, don't update the offset
 				m_CodeGen.LabelStatement(labelFalse);
 					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
-					break;
+					m_CodeGen.JumpStatement(JUMPW, len_false);
 				m_CodeGen.LabelStatement(labelTrue);
 					m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-					Node *offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-					len=m_CodeGen.BinOp(SUB,offsetNode,offset);
+					len = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
 			}
 			else
 				break;
 
-			SymbolLabel *len_true = m_CodeGen.NewLabel(LBL_CODE, "if_true");
-			SymbolLabel *len_false = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-			Node *zero = m_CodeGen.TermNode(PUSH, (uint32) 0);
-
-			//if the field exists, "len" is defined -> EndTok found.
-			m_CodeGen.JCondStatement(len_true, len_false, m_CodeGen.BinOp(JCMPNEQ, len, zero));
-
-			m_CodeGen.LabelStatement(len_true);
-
 			if(tokendFieldSym->EndOff!=NULL)
 			{
-				len = TranslateTree( tokendFieldSym->EndOff );
+				len = TranslateTree( static_cast<HIRNode*>(tokendFieldSym->EndOff ));
 			}
-
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
 
 			if(tokendFieldSym->EndDiscard!=NULL)
 			{
 				if (tokendFieldSym->DiscTemp==NULL)
 				{
-				SymbolTemp *discTemp = m_CodeGen.NewTemp(tokendFieldSym->Name + string("_disc"), m_CompUnit.NumLocals);
-				tokendFieldSym->DiscTemp = discTemp;
+					SymbolTemp *discTemp = m_CodeGen.NewTemp(tokendFieldSym->Name + string("_disc"), m_CompUnit.NumLocals);
+					tokendFieldSym->DiscTemp = discTemp;
 				}
-			Node *discExpr = TranslateTree(tokendFieldSym->EndDiscard);
-			//$fld_disc = discExpr
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, discExpr, tokendFieldSym->DiscTemp));
+			
+				MIRNode *discExpr = TranslateTree(static_cast<HIRNode*>(tokendFieldSym->EndDiscard));
+				//$fld_disc = discExpr
+				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, discExpr, tokendFieldSym->DiscTemp));
 			}
+			
 
 			if (sym->DependsOn==NULL)
-			{	Node *addNode;
+			{	
+			//$fld_index = $currentoffset
+				MIRNode *addNode;
 				//$add = $currentoffset + $len
 
-				addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), len);
+				addNode = m_CodeGen.BinOp(ADD, m_CodeGen.UnOp(LOCLD, currOffsTemp), m_CodeGen.UnOp(LOCLD,tokendFieldSym->LenTemp));
 
 				//$add = $add +$discard
 				if(tokendFieldSym->DiscTemp!=NULL)
@@ -3148,46 +3315,190 @@ void IRLowering::TranslateFieldDef(Node *node)
 				//$currentoffset = $add
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 			}
-
-			if(tokendFieldSym->ToExtract)
+			
+			if(genExtractionCode)
 			{
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, tokendFieldSym->Position)));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (tokendFieldSym->Position)+2)));	
-			}
+				if(tokendFieldSym->ToExtract && !tokendFieldSym->Protocol->ExAllfields) //[icerrato]
+				{
+					if(tokendFieldSym->MultiProto)
+					{
+						//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiProto - Test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-			if(tokendFieldSym->Protocol->ExAllfields)
-			{
-				Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokendFieldSym->ID), positionId));
-				Node *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->IndexTemp), positionOff));
-				Node *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->LenTemp), positionLen));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),tokendFieldSym->Protocol->position));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),tokendFieldSym->Protocol->NExFields));
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + tokendFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, tokendFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, tokendFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, tokendFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + tokendFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, tokendFieldSym->Position)));
+						m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)),tokendFieldSym->FieldCount));
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else if(tokendFieldSym->MultiField)
+					{
+						//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiField - test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + tokendFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, tokendFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, tokendFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, tokendFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), tokendFieldSym->FieldCount));
+						m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + tokendFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, tokendFieldSym->Position)));
+						
+						m_CodeGen.LabelStatement(labelFalse);				
+					}
+
+					else if(tokendFieldSym->HeaderIndex > 0)
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)tokendFieldSym->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + tokendFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, tokendFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokendFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (tokendFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), tokendFieldSym->FieldCount));
+
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else 
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);						
+						m_CodeGen.CommentStatement(string("Extract ") + tokendFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, tokendFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokendFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (tokendFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), tokendFieldSym->FieldCount));					
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+				}
+
+				if(tokendFieldSym->Protocol->ExAllfields)
+				{
+				
+					// [icerrato] we have to obtain the symbol for allfields
+					SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+					nbASSERT(symAllFields!=NULL,"There is an error");
+				
+					nbASSERT(!tokendFieldSym->MultiField,"ERROR: this situation should be avoided by the grammar");
+				
+					SymbolLabel *labelFalse = NULL;
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] test if we have to extract
+						m_CodeGen.CommentStatement(string("Test FirstExtract for the protocol ") + tokendFieldSym->Protocol->Name);
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = NULL;
+						if(symAllFields->HeaderIndex==0)
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						else
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+						labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+					
+						//[icerrato]label for the extraction
+						m_CodeGen.LabelStatement(labelTrue);
+				
+					}
+				
+					MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokendFieldSym->ID), positionId));
+					MIRNode *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->IndexTemp), positionOff));
+					MIRNode *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokendFieldSym->LenTemp), positionLen));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),tokendFieldSym->Protocol->position));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokendFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),tokendFieldSym->Protocol->NExFields));
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] label needed to avoid the extraction
+					    m_CodeGen.LabelStatement(labelFalse);
+					}
+					
+				}
 			}
 			m_CodeGen.LabelStatement(len_false);
 			// do nothing
+	break;
 #else
 	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
 	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
 	break;
 #endif
-		}break;
+		}
 
 
 	case PDL_FIELD_TOKWRAP:
-		{
+		{	
+			nbASSERT(false,"tokenwrapped fields are not supported");
 #ifdef USE_REGEX
 			SymbolFieldTokWrap *tokwrapFieldSym = (SymbolFieldTokWrap*)sym;
 			SymbolTemp *indexTemp = m_CodeGen.NewTemp(tokwrapFieldSym->Name + string("_ind"), m_CompUnit.NumLocals);
 			tokwrapFieldSym->IndexTemp = indexTemp;
 			SymbolTemp *lenTemp;
-			Node* offsetNode=offset;
-			Node* lenRegEx;
-			Node* begin=offset;
-			Node *len=m_CodeGen.TermNode(PUSH,(uint32)0);
-			Node* new_begin;
+			MIRNode* offsetNode=offset;
+			MIRNode* lenRegEx;
+			MIRNode* begin=offset;
+			MIRNode *len=m_CodeGen.TermNode(PUSH,(uint32)0);
+			MIRNode* new_begin;
+			
+			//$fld_index = $currentoffset
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));
 
 
 			if (tokwrapFieldSym->LenTemp==NULL)
@@ -3200,7 +3511,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 			{
 				SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)tokwrapFieldSym->BeginTok));
 
-				SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+				SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 				m_GlobalSymbols.StoreRegExEntry(regExp);
 
 				//set id
@@ -3211,13 +3522,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				// set buffer offset
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				TranslateTree(regExp->Offset),
+				m_CodeGen.UnOp(LOCLD,tokwrapFieldSym->IndexTemp), 
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_OFFSET));
 
 				// calculate and set buffer length
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL),m_CodeGen.UnOp(LOCLD,tokwrapFieldSym->IndexTemp)), 
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_LENGTH));
 
@@ -3226,10 +3537,11 @@ void IRLowering::TranslateFieldDef(Node *node)
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 				// check the result
-				Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-				Node *leftExpr = validNode;
-				Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+				MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+
+				MIRNode *leftExpr = validNode;
+				MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 				SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 				SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 				m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -3243,9 +3555,9 @@ void IRLowering::TranslateFieldDef(Node *node)
 					lenRegEx= m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_LENGTH_FOUND);
 					SymbolLabel *labelBeginTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 					SymbolLabel *labelBeginFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-					m_CodeGen.JCondStatement(labelBeginTrue, labelBeginFalse, m_CodeGen.BinOp(JCMPEQ, offset,m_CodeGen.BinOp(SUB,offsetNode,lenRegEx)));
+					m_CodeGen.JCondStatement(labelBeginTrue, labelBeginFalse, m_CodeGen.BinOp(JCMPEQ, m_CodeGen.UnOp(LOCLD,tokwrapFieldSym->IndexTemp),m_CodeGen.BinOp(SUB,offsetNode,lenRegEx)));
 					m_CodeGen.LabelStatement(labelBeginFalse);
-						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.UnOp(LOCLD,tokwrapFieldSym->IndexTemp), indexTemp));
 						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
 						break;
 					m_CodeGen.LabelStatement(labelBeginTrue);
@@ -3258,7 +3570,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)tokwrapFieldSym->BeginRegEx));
 
-				SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+				SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 				m_GlobalSymbols.StoreRegExEntry(regExp);
 
 				//set id
@@ -3269,13 +3581,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				// set buffer offset
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				TranslateTree(regExp->Offset),
+				TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_OFFSET));
 
 				// calculate and set buffer length
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(static_cast<HIRNode*>(regExp->Offset)) ),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_LENGTH));
 
@@ -3284,10 +3596,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 				// check the result
-				Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+				MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-				Node *leftExpr = validNode;
-				Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+				MIRNode *leftExpr = validNode;
+				MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 				SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 				SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 				m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -3313,7 +3625,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)tokwrapFieldSym->EndTok));
 
-				SymbolRegEx *regExp = new SymbolRegEx(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+				SymbolRegExPDL *regExp = new SymbolRegExPDL(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 				m_GlobalSymbols.StoreRegExEntry(regExp);
 
 				//set id
@@ -3324,13 +3636,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				// set buffer offset
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				TranslateTree(regExp->Offset),
+				TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_OFFSET));
 
 				// calculate and set buffer length
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(static_cast<HIRNode*>(regExp->Offset)) ),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_LENGTH));
 
@@ -3339,10 +3651,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 				// check the result
-				Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+				MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-				Node *leftExpr = validNode;
-				Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+				MIRNode *leftExpr = validNode;
+				MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 				SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 				SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 				m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -3362,7 +3674,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)tokwrapFieldSym->EndRegEx));
 
-				SymbolRegEx *regExp = new SymbolRegEx(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+				SymbolRegExPDL *regExp = new SymbolRegExPDL(offsetNode, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 				m_GlobalSymbols.StoreRegExEntry(regExp);
 
 				//set id
@@ -3373,13 +3685,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 				// set buffer offset
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				TranslateTree(regExp->Offset),
+				TranslateTree(static_cast<HIRNode*>(regExp->Offset)),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_OFFSET));
 
 				// calculate and set buffer length
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
-				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
+				m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(static_cast<HIRNode*>(regExp->Offset)) ),
 				new SymbolLabel(LBL_ID, 0, string("regexp")),
 				REGEX_OUT_BUF_LENGTH));
 
@@ -3388,10 +3700,10 @@ void IRLowering::TranslateFieldDef(Node *node)
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 				// check the result
-				Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+				MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-				Node *leftExpr = validNode;
-				Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+				MIRNode *leftExpr = validNode;
+				MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 				SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 				SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 				m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
@@ -3412,7 +3724,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 			if(tokwrapFieldSym->BeginOff!=NULL)
 			{
-				new_begin = TranslateTree( tokwrapFieldSym->BeginOff );
+				new_begin = TranslateTree(static_cast<HIRNode*>( tokwrapFieldSym->BeginOff ));
 				begin=m_CodeGen.BinOp(ADD,offset,new_begin);
 			}
 			//$fld_index = $begin
@@ -3420,7 +3732,7 @@ void IRLowering::TranslateFieldDef(Node *node)
 
 			if(tokwrapFieldSym->EndOff!=NULL)
 			{
-				Node *offExpr = TranslateTree( tokwrapFieldSym->EndOff );
+				MIRNode *offExpr = TranslateTree( static_cast<HIRNode*>(tokwrapFieldSym->EndOff ));
 				len =m_CodeGen.BinOp(SUB,m_CodeGen.BinOp(ADD,offExpr,offset),begin);
 			}
 			//$fld_len = $len
@@ -3433,13 +3745,13 @@ void IRLowering::TranslateFieldDef(Node *node)
 				SymbolTemp *discTemp = m_CodeGen.NewTemp(tokwrapFieldSym->Name + string("_disc"), m_CompUnit.NumLocals);
 				tokwrapFieldSym->DiscTemp = discTemp;
 				}
-			Node *discExpr = TranslateTree(tokwrapFieldSym->EndDiscard);
+			MIRNode *discExpr = TranslateTree(static_cast<HIRNode*>(tokwrapFieldSym->EndDiscard));
 			//$fld_disc = discExpr
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, discExpr, tokwrapFieldSym->DiscTemp));
 			}
 
 			if (sym->DependsOn==NULL)
-			{	Node *addNode;
+			{	MIRNode *addNode;
 
 				//$add = $begin + $len
 				if(tokwrapFieldSym->LenTemp!=NULL)
@@ -3449,61 +3761,200 @@ void IRLowering::TranslateFieldDef(Node *node)
 				//$add = $add +$discard
      			if(tokwrapFieldSym->DiscTemp!=NULL)
 				{
+
 				addNode=m_CodeGen.BinOp(ADD,addNode,m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->DiscTemp));
 				}
 
 				//$currentoffset = $add
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 			}
-
-			if(tokwrapFieldSym->ToExtract)
+			if(genExtractionCode)
 			{
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, tokwrapFieldSym->Position)));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (tokwrapFieldSym->Position)+2)));	
-			}
+				if(tokwrapFieldSym->ToExtract && !tokwrapFieldSym->Protocol->ExAllfields) //[icerrato]
+				{
+					if(tokwrapFieldSym->MultiProto)
+					{
+						//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiProto - Test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-			if(tokwrapFieldSym->Protocol->ExAllfields)
-			{
-				Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokwrapFieldSym->ID), positionId));
-				Node *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->IndexTemp), positionOff));
-				Node *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->LenTemp), positionLen));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),tokwrapFieldSym->Protocol->position));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),tokwrapFieldSym->Protocol->NExFields));
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + tokwrapFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, tokwrapFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, tokwrapFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + tokwrapFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, tokwrapFieldSym->Position)));
+						m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)),tokwrapFieldSym->FieldCount));
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else if(tokwrapFieldSym->MultiField)
+					{
+						//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiField - test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + tokwrapFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, tokwrapFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, tokwrapFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), tokwrapFieldSym->FieldCount));
+						m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + tokwrapFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, tokwrapFieldSym->Position)));
+						
+						m_CodeGen.LabelStatement(labelFalse);				
+					}
+
+					else if(tokwrapFieldSym->HeaderIndex > 0)
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)tokwrapFieldSym->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + tokwrapFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, tokwrapFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokwrapFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (tokwrapFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), tokwrapFieldSym->FieldCount));
+
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else 
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);						
+						m_CodeGen.CommentStatement(string("Extract ") + tokwrapFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, tokwrapFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokwrapFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (tokwrapFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), tokwrapFieldSym->FieldCount));					
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+				}
+
+				if(tokwrapFieldSym->Protocol->ExAllfields)
+				{
+					// [icerrato] we have to obtain the symbol for allfields
+					SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+					nbASSERT(symAllFields!=NULL,"There is an error");
+				
+					nbASSERT(!tokwrapFieldSym->MultiField,"ERROR: this situation should be avoided by the grammar");
+				
+					SymbolLabel *labelFalse = NULL;
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] test if we have to extract
+						m_CodeGen.CommentStatement(string("Test FirstExtract for the protocol ") + tokwrapFieldSym->Protocol->Name);
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = NULL;
+						if(symAllFields->HeaderIndex==0)
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						else
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+						labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+					
+						//[icerrato]label for the extraction
+						m_CodeGen.LabelStatement(labelTrue);
+				
+					}
+				
+				
+					MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,tokwrapFieldSym->ID), positionId));
+					MIRNode *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->IndexTemp), positionOff));
+					MIRNode *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,tokwrapFieldSym->LenTemp), positionLen));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),tokwrapFieldSym->Protocol->position));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, tokwrapFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),tokwrapFieldSym->Protocol->NExFields));
+					
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] label needed to avoid the extraction
+					    m_CodeGen.LabelStatement(labelFalse);
+					}
+				}
 			}
+	break;
 
 #else
 	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
 	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
 	break;
 #endif
-		}break;
+		};
 
 
 		case PDL_FIELD_LINE:
 			{
-//#ifdef USE_REGEX
-
-			SymbolFieldLine *lineFieldSym = (SymbolFieldLine*)sym;
+#ifdef USE_REGEX
+			SymbolFieldLine *lineFieldSym = static_cast<SymbolFieldLine*>(sym);
+			
 			SymbolTemp *indexTemp = m_CodeGen.NewTemp(lineFieldSym->Name + string("_ind"), m_CompUnit.NumLocals);
 			lineFieldSym->IndexTemp = indexTemp;
-			SymbolTemp *lenTemp = NULL;
-			if (lineFieldSym->LenTemp==NULL)
-			{
-				lenTemp = m_CodeGen.NewTemp(lineFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
-				lineFieldSym->LenTemp = lenTemp;
-			}
+			SymbolTemp *lenTemp;
 
-			m_CodeGen.TermNode(PUSH, (uint32) 0);
+			lenTemp = m_CodeGen.NewTemp(lineFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
+			lineFieldSym->LenTemp = lenTemp;
 
-			//$fld_index = $currentoffset
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset->Clone(), indexTemp));
+			
+			MIRNode *len = m_CodeGen.TermNode(PUSH, (uint32) 0);
+
+			//$fld_index = $currentoffset 
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));
 
 			SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)lineFieldSym->EndTok));
 
-			SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+			SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 			m_GlobalSymbols.StoreRegExEntry(regExp);
 
 			//set id
@@ -3511,220 +3962,635 @@ void IRLowering::TranslateFieldDef(Node *node)
 				new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_PATTERN_ID));
 
 			// set buffer offset
-			// m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, TranslateTree(regExp->Offset),
-			//	new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_OFFSET));
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, regExp->Offset->Clone(),
-					new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_OFFSET));
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
+			m_CodeGen.UnOp(LOCLD,lineFieldSym->IndexTemp), 
+			new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_OFFSET));
 
-			// calculate and set buffer length
-			// m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), TranslateTree(regExp->Offset) ),
-			//	new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_LENGTH));
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), regExp->Offset->Clone() ),
-					new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_LENGTH));
+			// calculate and set buffer length 
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, 
+			m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL),
+			m_CodeGen.UnOp(LOCLD,lineFieldSym->IndexTemp)),
+  			new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_LENGTH));
 
 			// find the pattern
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
 			// check the result
-			Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+			MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-			Node *leftExpr = validNode;
-			Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+			MIRNode *leftExpr = validNode;
+			MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
 			SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 			SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 			m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
+			SymbolLabel *len_false = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 
 			// if there aren't any matches the field doesn't exist, don't update the offset
-			//m_CodeGen.LabelStatement(labelFalse);
-			//	break;
+			m_CodeGen.LabelStatement(labelFalse);
+				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
+				m_CodeGen.JumpStatement(JUMPW, len_false);
 			m_CodeGen.LabelStatement(labelTrue);
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-				Node *offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-				//Node *lenRegEx = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_LENGTH_FOUND);
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offsetNode, lenTemp));
-			m_CodeGen.LabelStatement(labelFalse);
+				len = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
+				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
+
+			//len_false cuold be put here?
 
 			if (sym->DependsOn==NULL)
-			{
+			{	
 				//$add = $currentoffset + $len
-				Node *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, lineFieldSym->LenTemp));
+				MIRNode *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, lineFieldSym->LenTemp));
 				//$currentoffset = $add
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 			}
-
-			if(lineFieldSym->ToExtract)
+			
+			if(genExtractionCode)
 			{
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, lineFieldSym->Position)));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (lineFieldSym->Position)+2)));	
-			}
+				if(lineFieldSym->ToExtract && !lineFieldSym->Protocol->ExAllfields)
+				{
+					if(lineFieldSym->MultiProto)
+					{
+						//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiProto - Test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-			if(lineFieldSym->Protocol->ExAllfields)
-			{
-				Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,lineFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,lineFieldSym->ID), positionId));
-				Node *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->IndexTemp), positionOff));
-				Node *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->LenTemp), positionLen));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),lineFieldSym->Protocol->position));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),lineFieldSym->Protocol->NExFields));
-			}
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + lineFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, lineFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, lineFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, lineFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + lineFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, lineFieldSym->Position)));
+						m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)),lineFieldSym->FieldCount));
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
 
-//#else
-//	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
-//	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
-//	break;
-//#endif
+					else if(lineFieldSym->MultiField)
+					{
+						//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiField - test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + lineFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, lineFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, lineFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, lineFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), lineFieldSym->FieldCount));
+						m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + lineFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, lineFieldSym->Position)));
+						
+						m_CodeGen.LabelStatement(labelFalse);				
+					}
+
+					else if(lineFieldSym->HeaderIndex > 0)
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)lineFieldSym->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + lineFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, lineFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,lineFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (lineFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), lineFieldSym->FieldCount));
+
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else 
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);						
+						m_CodeGen.CommentStatement(string("Extract ") + lineFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, lineFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,lineFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (lineFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), lineFieldSym->FieldCount));					
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+				}
+				if(lineFieldSym->Protocol->ExAllfields)
+				{
+					// [icerrato] we have to obtain the symbol for allfields
+					SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+					nbASSERT(symAllFields!=NULL,"There is an error");
+				
+					nbASSERT(!lineFieldSym->MultiField,"ERROR: this situation should be avoided by the grammar");
+				
+					SymbolLabel *labelFalse = NULL;
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] test if we have to extract
+						m_CodeGen.CommentStatement(string("Test FirstExtract for the protocol ") + lineFieldSym->Protocol->Name);
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = NULL;
+						if(symAllFields->HeaderIndex==0)
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						else
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+						labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+					
+						//[icerrato]label for the extraction
+						m_CodeGen.LabelStatement(labelTrue);
+				
+					}
+				
+					MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,lineFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,lineFieldSym->ID), positionId));
+					MIRNode *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->IndexTemp), positionOff));
+					MIRNode *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,lineFieldSym->LenTemp), positionLen));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),lineFieldSym->Protocol->position));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, lineFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),lineFieldSym->Protocol->NExFields));
+					
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] label needed to avoid the extraction
+					    m_CodeGen.LabelStatement(labelFalse);
+					}	
+				}
 			}
+				
+			m_CodeGen.LabelStatement(len_false);
 			break;
+#else
+	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
+	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
+	break;
+#endif
+			}
+			
 		case PDL_FIELD_PATTERN:
 		{
-//#ifdef USE_REGEX
-			SymbolFieldPattern *patternFieldSym = (SymbolFieldPattern*)sym;
+#ifdef USE_REGEX
+			SymbolFieldPattern *patternFieldSym = static_cast<SymbolFieldPattern*>(sym);
 			SymbolTemp *indexTemp = m_CodeGen.NewTemp(patternFieldSym->Name + string("_ind"), m_CompUnit.NumLocals);
 			patternFieldSym->IndexTemp = indexTemp;
-			SymbolTemp *lenTemp = NULL;
-			if (patternFieldSym->LenTemp==NULL)
-			{
-				lenTemp = m_CodeGen.NewTemp(patternFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
-				patternFieldSym->LenTemp = lenTemp;
-			}
+			SymbolTemp *lenTemp;
 
-			m_CodeGen.TermNode(PUSH, (uint32) 0);
+			lenTemp = m_CodeGen.NewTemp(patternFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
+			patternFieldSym->LenTemp = lenTemp;
+
+			MIRNode *len = m_CodeGen.TermNode(PUSH, (uint32) 0);
 
 			//$fld_index = $currentoffset
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset->Clone(), indexTemp));
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));
 
 			SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen.ConstStrSymbol(string((const char*)patternFieldSym->Pattern));
 
-			SymbolRegEx *regExp = new SymbolRegEx(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
+			SymbolRegExPDL *regExp = new SymbolRegExPDL(offset, pattern, true, m_GlobalSymbols.GetRegExEntriesCount());
 			m_GlobalSymbols.StoreRegExEntry(regExp);
 
 			//set id
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, m_CodeGen.TermNode(PUSH, regExp->Id),
 					new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_PATTERN_ID));
 
-			// set buffer offset - comment to implement 'set behaviour'
-			//m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, regExp->Offset->Clone(),
-			//		new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_OFFSET));
+			// set buffer offset
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
+			m_CodeGen.UnOp(LOCLD,patternFieldSym->IndexTemp),
+			new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_OFFSET));
 
-			// calculate and set buffer length - comment to implement set behaviour, see below
-			//m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), regExp->Offset->Clone() ),
-			//		new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_LENGTH));
-			// uncomment this
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT, m_CodeGen.TermNode(PBL),
-					new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_LENGTH));
+			// calculate and set buffer length
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPOUT,
+			m_CodeGen.BinOp( SUB, m_CodeGen.TermNode(PBL), m_CodeGen.UnOp(LOCLD,patternFieldSym->IndexTemp)),
+			new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_OUT_BUF_LENGTH));
 
 			// find the pattern
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_MATCH_WITH_OFFSET));
 
-			// check the result
-			Node *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
 
-			Node *leftExpr = validNode;
-			Node *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+			// check the result
+			MIRNode *validNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_MATCHES_FOUND);
+
+			MIRNode *leftExpr = validNode;
+			MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+			SymbolLabel *len_false = m_CodeGen.NewLabel(LBL_CODE, "if_false");
 			SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "if_true");
 			SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "if_false");
-			m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPGE, leftExpr, rightExpr));
+			m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPG, leftExpr, rightExpr));
+		
+			// if there aren't any matches the field doesn't exist, don't update the offset
+			m_CodeGen.LabelStatement(labelFalse);
+				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
+				m_CodeGen.JumpStatement(JUMPW, len_false);
 
 			m_CodeGen.LabelStatement(labelTrue);
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_GET_RESULT));
-				Node *offsetNode = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
-				Node *lenRegEx= m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_LENGTH_FOUND);
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, lenRegEx->Clone(), lenTemp));
-				// uncomment next line to implement set behaviour
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp( SUB, offsetNode->Clone(), lenRegEx->Clone()), indexTemp));
-			// if there aren't any matches the field doesn't exist, don't update the offset
-			m_CodeGen.LabelStatement(labelFalse);
+				len = m_CodeGen.TermNode(COPIN, new SymbolLabel(LBL_ID, 0, string("regexp")), REGEX_IN_OFFSET_FOUND);
+	
+				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, len, lenTemp));
 
 			if (sym->DependsOn==NULL)
 			{
 				//$add = $currentoffset + $len
-				Node *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, patternFieldSym->LenTemp));
+				MIRNode *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, patternFieldSym->LenTemp));
 				//$currentoffset = $add
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 			}
 
-			if(patternFieldSym->ToExtract)
+			if(genExtractionCode)
 			{
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, patternFieldSym->Position)));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (patternFieldSym->Position)+2)));	
-			}
+				if(patternFieldSym->ToExtract && !patternFieldSym->Protocol->ExAllfields)
+				{
+					if(patternFieldSym->MultiProto)
+					{
+						//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiProto - Test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-			if(patternFieldSym->Protocol->ExAllfields)
-			{
-				Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,patternFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,patternFieldSym->ID), positionId));
-				Node *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->IndexTemp), positionOff));
-				Node *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->LenTemp), positionLen));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),patternFieldSym->Protocol->position));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),patternFieldSym->Protocol->NExFields));
-			}
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + patternFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, patternFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, patternFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, patternFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + patternFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, patternFieldSym->Position)));
+						m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)),patternFieldSym->FieldCount));
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
 
-//#else
-//	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
-//	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
-//	break;
-//#endif
-			}break;
+					else if(patternFieldSym->MultiField)
+					{
+						//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiField - test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + patternFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, patternFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, patternFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, patternFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), patternFieldSym->FieldCount));
+						m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + patternFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, patternFieldSym->Position)));
+						
+						m_CodeGen.LabelStatement(labelFalse);				
+					}
+
+					else if(patternFieldSym->HeaderIndex > 0)
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)patternFieldSym->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + patternFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, patternFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,patternFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (patternFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), patternFieldSym->FieldCount));
+
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else 
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);						
+						m_CodeGen.CommentStatement(string("Extract ") + patternFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, patternFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,patternFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (patternFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), patternFieldSym->FieldCount));					
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+				}
+
+				if(patternFieldSym->Protocol->ExAllfields)
+				{
+					// [icerrato] we have to obtain the symbol for allfields
+					SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+					nbASSERT(symAllFields!=NULL,"There is an error");
+				
+					nbASSERT(!patternFieldSym->MultiField,"ERROR: this situation should be avoided by the grammar");
+				
+					SymbolLabel *labelFalse = NULL;
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] test if we have to extract
+						m_CodeGen.CommentStatement(string("Test FirstExtract for the protocol ") + patternFieldSym->Protocol->Name);
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = NULL;
+						if(symAllFields->HeaderIndex==0)
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						else
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+						labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+					
+						//[icerrato]label for the extraction
+						m_CodeGen.LabelStatement(labelTrue);
+				
+					}
+				
+					MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,patternFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,patternFieldSym->ID), positionId));
+					MIRNode *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->IndexTemp), positionOff));
+					MIRNode *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,patternFieldSym->LenTemp), positionLen));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),patternFieldSym->Protocol->position));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, patternFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),patternFieldSym->Protocol->NExFields));
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] label needed to avoid the extraction
+					    m_CodeGen.LabelStatement(labelFalse);
+					}	
+					
+				}
+			
+			}
+		
+			// if there aren't any matches the field doesn't exist, don't update the offset
+			m_CodeGen.LabelStatement(len_false);
+			break;
+
+#else
+	this->GenerateWarning("Regular Expressions disabled.", __FILE__, __FUNCTION__, __LINE__, 1, 4);
+	m_CodeGen.CommentStatement("ERROR: Regular Expressions disabled.");
+	break;
+#endif
+			}
 		case PDL_FIELD_EATALL:
 		{
-
-			SymbolFieldEatAll *eatallFieldSym = (SymbolFieldEatAll*)fieldSym;
-			Node *currOffsNode = m_CodeGen.TermNode(LOCLD, currOffsTemp);
+			SymbolFieldEatAll *eatallFieldSym = static_cast<SymbolFieldEatAll*>(sym);
+			MIRNode *currOffsNode = m_CodeGen.TermNode(LOCLD, currOffsTemp);
 			SymbolTemp *lenTemp = NULL;
 			SymbolTemp *indexTemp = m_CodeGen.NewTemp(eatallFieldSym->Name + string("_ind"), m_CompUnit.NumLocals);
 			eatallFieldSym->IndexTemp = indexTemp;
 
-			if (eatallFieldSym->LenTemp==NULL)
-			{
-				lenTemp = m_CodeGen.NewTemp(eatallFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
-				eatallFieldSym->LenTemp = lenTemp;
-			}
+			lenTemp = m_CodeGen.NewTemp(eatallFieldSym->Name + string("_len"), m_CompUnit.NumLocals);
+			eatallFieldSym->LenTemp = lenTemp;
 
 			//$fld_index = $currentoffset
-			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));
-
-			if(sym->DependsOn==NULL)
+			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, offset, indexTemp));	
+	
+			if(eatallFieldSym->DependsOn==NULL)
 			{
 				//$fld_len = ($packet_end-$currentoffset)
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(SUB, m_CodeGen.TermNode(PBL), currOffsNode), lenTemp));
 			}
 			else
 			{
-				//$fld_len = ($parent_field_offset_end-$currentoffset)
-				Node *p_fieldOffsNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,((SymbolFieldEatAll *)sym->DependsOn)->IndexTemp), m_CodeGen.TermNode(LOCLD,((SymbolFieldEatAll*)sym->DependsOn)->LenTemp));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(SUB, p_fieldOffsNode, offset), lenTemp));
+				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(SUB,  currOffsNode,m_CodeGen.TermNode(LOCLD,indexTemp)), lenTemp));
 			}
 
 
 
-			if (sym->DependsOn==NULL)
+			if (eatallFieldSym->DependsOn==NULL)
 			{
 				//$add = $currentoffset + $len
-				Node *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, eatallFieldSym->LenTemp));
+				MIRNode *addNode = m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, currOffsTemp), m_CodeGen.TermNode(LOCLD, eatallFieldSym->LenTemp));
 				//$currentoffset = $add
 				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, addNode, currOffsTemp));
 			}
 
-			if(eatallFieldSym->ToExtract)
+			if(genExtractionCode)
 			{
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, eatallFieldSym->Position)));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (eatallFieldSym->Position)+2)));	
-			}
+				if(eatallFieldSym->ToExtract && !eatallFieldSym->Protocol->ExAllfields)
+				{
+					if(eatallFieldSym->MultiProto)
+					{
+						//the variable field_counter must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiProto - Test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
 
-			if(eatallFieldSym->Protocol->ExAllfields)
-			{
-				Node *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,eatallFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,eatallFieldSym->ID), positionId));
-				Node *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->IndexTemp), positionOff));
-				Node *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
-				m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->LenTemp), positionLen));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),eatallFieldSym->Protocol->position));
-				m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),eatallFieldSym->Protocol->NExFields));
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiProto - Calculate the offset into the Info-Partition for the field and extract ") + eatallFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, eatallFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, eatallFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, eatallFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiProto - Store the number of extracted fields ") + eatallFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG), m_CodeGen.TermNode(PUSH, 1)), m_CodeGen.TermNode(PUSH, eatallFieldSym->Position)));
+						m_CodeGen.CommentStatement(string("MultiProto - Increase field counter"));						
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)),eatallFieldSym->FieldCount));
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else if(eatallFieldSym->MultiField)
+					{
+						//the variable proto_ExtractG must be tested and then, if it is 0, the extraction is performed
+						m_CodeGen.CommentStatement(string("MultiField - test"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "MultiField_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "MultiField_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("MultiField - Calculate the offset into the Info-Partition for the field and extract ") + eatallFieldSym->Name);
+						MIRNode *slot_offs = m_CodeGen.BinOp(ADD, m_CodeGen.BinOp(IMUL, m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 4)),
+						m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(PUSH, eatallFieldSym->Position), m_CodeGen.TermNode(PUSH, 4)));
+						SymbolTemp *temp = m_CodeGen.NewTemp("temp", m_CompUnit.NumLocals);
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, slot_offs, temp));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD, eatallFieldSym->IndexTemp), m_CodeGen.TermNode(LOCLD, temp)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH, eatallFieldSym->LenTemp), m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, temp), m_CodeGen.TermNode(PUSH, 2))));
+						m_CodeGen.CommentStatement(string("MultiField - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), eatallFieldSym->FieldCount));
+						m_CodeGen.CommentStatement(string("MultiField - Store the number of extracted fields ") + eatallFieldSym->Name + " into the info partition");
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(IISTR, m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, eatallFieldSym->Position)));
+						
+						m_CodeGen.LabelStatement(labelFalse);				
+					}
+
+					else if(eatallFieldSym->HeaderIndex > 0)
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)eatallFieldSym->HeaderIndex - 1);//sottraggo 1 perche' l'indice Extract parte da 0
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("HeaderIndexing - Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "HeaderIndex_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);
+						m_CodeGen.CommentStatement(string("HeaderIndex - extract ") + eatallFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, eatallFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,eatallFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (eatallFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), eatallFieldSym->FieldCount));
+
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+
+					else 
+					{
+						//Two tests are required: on the header instance and on the field instance
+						m_CodeGen.CommentStatement(string("Test on header instance"));
+						MIRNode *leftExprHeader = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExprHeader = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrueHeader = m_CodeGen.NewLabel(LBL_CODE, "Extract_header_true");
+						SymbolLabel *labelFalse = m_CodeGen.NewLabel(LBL_CODE, "Extract_false");
+						m_CodeGen.JCondStatement(labelTrueHeader, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExprHeader, rightExprHeader));
+
+						m_CodeGen.LabelStatement(labelTrueHeader);
+						m_CodeGen.CommentStatement(string("Test on field instance"));
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount);
+						MIRNode *rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "Extract_true");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+
+						m_CodeGen.LabelStatement(labelTrue);						
+						m_CodeGen.CommentStatement(string("Extract ") + eatallFieldSym->Name);
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->IndexTemp), m_CodeGen.TermNode(PUSH, eatallFieldSym->Position)));
+						m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,eatallFieldSym->LenTemp), m_CodeGen.TermNode(PUSH, (eatallFieldSym->Position)+2)));
+						m_CodeGen.CommentStatement(string("Header Indexing - Increase field counter"));
+						m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->FieldCount), m_CodeGen.TermNode(PUSH, 1)), eatallFieldSym->FieldCount));					
+						
+						m_CodeGen.LabelStatement(labelFalse);
+					}
+				}
+
+				if(eatallFieldSym->Protocol->ExAllfields)
+				{
+					// [icerrato] we have to obtain the symbol for allfields
+					SymbolField *symAllFields=this->m_GlobalSymbols.LookUpProtoFieldByName(this->m_Protocol, "allfields");
+					nbASSERT(symAllFields!=NULL,"There is an error");
+				
+					nbASSERT(!eatallFieldSym->MultiField,"ERROR: this situation should be avoided by the grammar");
+				
+					SymbolLabel *labelFalse = NULL;
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] test if we have to extract
+						m_CodeGen.CommentStatement(string("Test FirstExtract for the protocol ") + eatallFieldSym->Protocol->Name);
+						MIRNode *leftExpr = m_CodeGen.TermNode(LOCLD, m_Protocol->ExtractG);
+						MIRNode *rightExpr = NULL;
+						if(symAllFields->HeaderIndex==0)
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)0);
+						else
+							rightExpr = m_CodeGen.TermNode(PUSH, (uint32)symAllFields->HeaderIndex - 1);					
+						SymbolLabel *labelTrue = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_true");
+						labelFalse = m_CodeGen.NewLabel(LBL_CODE, "FirstExtract_false");
+						m_CodeGen.JCondStatement(labelTrue, labelFalse, m_CodeGen.BinOp(JCMPEQ, leftExpr, rightExpr));
+					
+						//[icerrato]label for the extraction
+						m_CodeGen.LabelStatement(labelTrue);
+				
+					}
+				
+					MIRNode *positionId= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD,eatallFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 2));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(PUSH,eatallFieldSym->ID), positionId));
+					MIRNode *positionOff= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 4));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->IndexTemp), positionOff));
+					MIRNode *positionLen= m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->position), m_CodeGen.TermNode(PUSH, 6));
+					m_CodeGen.GenStatement(m_CodeGen.BinOp(ISSTR, m_CodeGen.TermNode(LOCLD,eatallFieldSym->LenTemp), positionLen));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->position) ,m_CodeGen.TermNode(PUSH, 6)),eatallFieldSym->Protocol->position));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST,m_CodeGen.BinOp(ADD, m_CodeGen.TermNode(LOCLD, eatallFieldSym->Protocol->NExFields) ,m_CodeGen.TermNode(PUSH, 1)),eatallFieldSym->Protocol->NExFields));
+					
+					if(!symAllFields->MultiProto)
+					{
+						//[icerrato] label needed to avoid the extraction
+					    m_CodeGen.LabelStatement(labelFalse);
+					}	
+				}
 			}
 
 		}break;
@@ -3735,15 +4601,15 @@ void IRLowering::TranslateFieldDef(Node *node)
 	}
 }
 
-void IRLowering::TranslateVarDeclInt(Node *node)
+void IRLowering::TranslateVarDeclInt(HIRNode *node)
 {
 	nbASSERT(node->Op == IR_DEFVARI, "node must be an IR_DEFVARI");
-	Node *leftChild = node->GetLeftChild();
+	HIRNode *leftChild = node->GetLeftChild();
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(leftChild->Sym != NULL, "left child symbol cannot be NULL");
 	nbASSERT(leftChild->Sym->SymKind == SYM_RT_VAR, "left child symbol must be a SYM_RT_VAR");
 
-	Node *rightChild = node->GetRightChild();
+	HIRNode *rightChild = node->GetRightChild();
 	nbASSERT(rightChild != NULL, "right child cannot be NULL");
 
 	SymbolVariable *varSym = (SymbolVariable*)leftChild->Sym;
@@ -3752,7 +4618,7 @@ void IRLowering::TranslateVarDeclInt(Node *node)
 	SymbolVarInt *intVar = (SymbolVarInt*)varSym;
 	SymbolTemp *temp = m_CodeGen.NewTemp(varSym->Name, m_CompUnit.NumLocals);
 	intVar->Temp = temp;
-	Node *initializer(0);
+	MIRNode *initializer(0);
 	if (intVar->Name.compare("$pbl") == 0)
 		initializer = m_CodeGen.TermNode(PBL);
 	else
@@ -3763,10 +4629,10 @@ void IRLowering::TranslateVarDeclInt(Node *node)
 
 }
 
-void IRLowering::TranslateVarDeclStr(Node *node)
+void IRLowering::TranslateVarDeclStr(HIRNode *node)
 {
 	nbASSERT(node->Op == IR_DEFVARS, "node must be an IR_DEFVARS");
-	Node *leftChild = node->GetLeftChild();
+	HIRNode *leftChild = node->GetLeftChild();
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(leftChild->Sym != NULL, "left child symbol cannot be NULL");
 	nbASSERT(leftChild->Sym->SymKind == SYM_RT_VAR, "left child symbol must be a SYM_RT_VAR");
@@ -3804,15 +4670,15 @@ SymbolTemp *IRLowering::AssociateVarTemp(SymbolVarInt *var)
 	return var->Temp;
 }
 
-void IRLowering::TranslateAssignInt(Node *node)
+void IRLowering::TranslateAssignInt(HIRNode *node)
 {
 	nbASSERT(node->Op == IR_ASGNI, "node must be an IR_ASGNI");
-	Node *leftChild = node->GetLeftChild();
+	HIRNode *leftChild = node->GetLeftChild();
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(leftChild->Sym != NULL, "left child symbol cannot be NULL");
 	nbASSERT(leftChild->Sym->SymKind == SYM_RT_VAR, "left child symbol must be a SYM_RT_VAR");
 
-	Node *rightChild = node->GetRightChild();
+	HIRNode *rightChild = node->GetRightChild();
 	nbASSERT(rightChild != NULL, "right child cannot be NULL");
 
 	SymbolVariable *varSym = (SymbolVariable*)leftChild->Sym;
@@ -3840,7 +4706,7 @@ void IRLowering::TranslateAssignInt(Node *node)
 
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, table->Label, LOOKUP_EX_OP_GET_VALUE));
 
-			Node *itemNode = m_CodeGen.TermNode(COPIN, table->Label, LOOKUP_EX_IN_VALUE);
+			MIRNode *itemNode = m_CodeGen.TermNode(COPIN, table->Label, LOOKUP_EX_IN_VALUE);
 
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, itemNode, AssociateVarTemp(intVar)));
 		}
@@ -3857,6 +4723,8 @@ void IRLowering::TranslateAssignInt(Node *node)
 	}
 }
 
+/*
+//[icerrato] never used
 void IRLowering::TranslateAssignRef(SymbolVarBufRef *refVar, Node *right)
 {
 	nbASSERT(false, "CANNOT BE HERE");
@@ -3870,17 +4738,17 @@ void IRLowering::TranslateAssignRef(SymbolVarBufRef *refVar, Node *right)
 
 	//!\todo manage packet reference
 #endif
-}
+}*/
 
-void IRLowering::TranslateAssignStr(Node *node)
+void IRLowering::TranslateAssignStr(HIRNode *node)
 {
 	nbASSERT(node->Op == IR_ASGNS, "node must be an IR_ASGNS");
-	Node *leftChild = node->GetLeftChild();
+	HIRNode *leftChild = node->GetLeftChild();
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(leftChild->Sym != NULL, "left child symbol cannot be NULL");
 	nbASSERT(leftChild->Sym->SymKind == SYM_RT_VAR, "left child symbol must be a SYM_RT_VAR");
 
-	Node *rightChild = node->GetRightChild();
+	HIRNode *rightChild = node->GetRightChild();
 	nbASSERT(rightChild != NULL, "right child cannot be NULL");
 	nbASSERT(rightChild->IsString(), "right child should be of type string");
 	nbASSERT(rightChild->Op == IR_FIELD || rightChild->Op == IR_SVAR, "right child should be a string");
@@ -3912,7 +4780,12 @@ void IRLowering::TranslateAssignStr(Node *node)
 
 							m_CodeGen.CommentStatement(ref->Name + string(" = ") + fixedField->Name + string(" (preload of ") + ref->ValueTemp->Name + string(")"));
 
-							Node *cint=TranslateFieldToInt(m_CodeGen.TermNode(IR_FIELD, fixedField), NULL, fixedField->Size);
+
+							//[icerrato]
+							CodeList *hcode = m_GlobalSymbols.NewCodeList(true);
+							HIRCodeGen hircodegen(m_GlobalSymbols, hcode);
+
+							MIRNode *cint=TranslateFieldToInt(hircodegen.TermNode(IR_FIELD, fixedField), NULL, fixedField->Size);
 							m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, cint, ref->ValueTemp));
 						}
 						else
@@ -3961,6 +4834,7 @@ void IRLowering::TranslateAssignStr(Node *node)
 					if (indexTemp == 0)
 						indexTemp = ref->IndexTemp = m_CodeGen.NewTemp(ref->Name + string("_ref_ind"), m_CompUnit.NumLocals);
 
+
 					SymbolTemp *lenTemp = ref->LenTemp;
 					if (lenTemp == 0)
 						lenTemp = ref->LenTemp = m_CodeGen.NewTemp(ref->Name + string("_ref_len"), m_CompUnit.NumLocals);
@@ -3970,7 +4844,7 @@ void IRLowering::TranslateAssignStr(Node *node)
 					//$fld_index = $referee_index
 					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, m_CodeGen.TermNode(LOCLD, varLenField->IndexTemp), indexTemp));
 					//$fld_len = $referee_len
-					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, varLenField->LenExpr, lenTemp));
+					m_CodeGen.GenStatement(m_CodeGen.UnOp(LOCST, static_cast<MIRNode*>(varLenField->LenExpr), lenTemp));
 				}break;
 
 			case PDL_FIELD_TOKEND:
@@ -4100,21 +4974,31 @@ void IRLowering::TranslateAssignStr(Node *node)
 }
 
 
-Node *IRLowering::TranslateIntVarToInt(Node *node)
+MIRNode *IRLowering::TranslateIntVarToInt(HIRNode *node)
 {
+
 	nbASSERT(node->Op == IR_IVAR, "node must be an IR_IVAR");
 	nbASSERT(node->Sym != NULL, "contained symbol cannot be NULL");
 	nbASSERT(node->Sym->SymKind = SYM_RT_VAR, "contained symbol must be an RT_VAR");
-	nbASSERT(((SymbolVariable*)node->Sym)->VarType == PDL_RT_VAR_INTEGER, "contained symbol must be an integer variable");
-	SymbolVarInt *intVar = (SymbolVarInt*)node->Sym;
-
-	if (intVar->Name.compare("$pbl") == 0)
-		return m_CodeGen.TermNode(PBL);
+	if(((SymbolVariable*)node->Sym)->VarType == PDL_RT_VAR_INTEGER)
+	{
+		SymbolVarInt *intVar = (SymbolVarInt*)node->Sym;
+		nbASSERT(intVar->Temp!=NULL,"This temp variable cannot be NULL");
+		if ((intVar->Name.compare("$pbl") == 0) ||(intVar->Name.compare("$framelength") == 0))
+			return m_CodeGen.TermNode(PBL);
+		else
+			return m_CodeGen.TermNode(LOCLD, intVar->Temp);
+	}
 	else
-		return m_CodeGen.TermNode(LOCLD, intVar->Temp);
+	{
+		//we are loading an integer variable not defined into the netpdl
+		node->Sym->SymKind=SYM_TEMP;
+		//FIXME: sta cosa è una porcata.. dovrebbe già essere un SYM_TEMP, ma non so dove si perde
+		return m_CodeGen.TermNode(LOCLD, (SymbolTemp*)node->Sym);
+	}
 }
 
-Node *IRLowering::TranslateStrVarToInt(Node *node, Node* offset, uint32 size)
+MIRNode *IRLowering::TranslateStrVarToInt(HIRNode *node, MIRNode* offset, uint32 size)
 {
 	//!\todo Implement lowering of CINT(SVAR)
 	nbASSERT(node->Op == IR_SVAR, "node must be an IR_VAR");
@@ -4132,7 +5016,7 @@ Node *IRLowering::TranslateStrVarToInt(Node *node, Node* offset, uint32 size)
 
 				if (ref->RefType == REF_IS_PACKET_VAR) {
 					nbASSERT(offset != NULL, "offsNode should be != NULL");
-					return GenMemLoad(offset, size);
+					return GenMemLoad(offset, size); 
 				} else if (ref->RefType == REF_IS_REF_TO_FIELD) {
 					if (ref->IntCompatible==false)
 					{
@@ -4190,7 +5074,7 @@ Node *IRLowering::TranslateStrVarToInt(Node *node, Node* offset, uint32 size)
 
 			m_CodeGen.GenStatement(m_CodeGen.UnOp(COPRUN, table->Label, LOOKUP_EX_OP_GET_VALUE));
 
-			Node *itemNode = m_CodeGen.TermNode(COPIN, table->Label, LOOKUP_EX_IN_VALUE);
+			MIRNode *itemNode = m_CodeGen.TermNode(COPIN, table->Label, LOOKUP_EX_IN_VALUE);
 
 			return itemNode;
 		}
@@ -4209,7 +5093,7 @@ Node *IRLowering::TranslateStrVarToInt(Node *node, Node* offset, uint32 size)
 }
 
 
-Node *IRLowering::TranslateFieldToInt(Node *node, Node* offset, uint32 size)
+MIRNode *IRLowering::TranslateFieldToInt(HIRNode *node, MIRNode* offset, uint32 size)
 {
 	nbASSERT(node->Op == IR_FIELD, "node must be an IR_FIELD");
 	nbASSERT(node->Sym != NULL, "contained symbol cannot be NULL");
@@ -4228,7 +5112,7 @@ Node *IRLowering::TranslateFieldToInt(Node *node, Node* offset, uint32 size)
 		return m_CodeGen.TermNode(PUSH, (uint32)-1);
 	}
 
-	Node *memOffs(0);
+	MIRNode *memOffs(0);
 	switch(fieldSym->FieldType)
 	{
 	case PDL_FIELD_FIXED:
@@ -4267,6 +5151,7 @@ Node *IRLowering::TranslateFieldToInt(Node *node, Node* offset, uint32 size)
 			uint32 mask=bitField->Mask;
 			SymbolFieldContainer *container=(SymbolFieldContainer *)bitField->DependsOn;
 
+
 			// search the fixed field root to get the size
 			while (container->FieldType!=PDL_FIELD_FIXED)
 			{
@@ -4294,8 +5179,8 @@ Node *IRLowering::TranslateFieldToInt(Node *node, Node* offset, uint32 size)
 			}
 
 			memOffs = m_CodeGen.TermNode(LOCLD, fixed->IndexTemp);
-			Node *memLoad = GenMemLoad(memOffs, fixed->Size);
-			Node *field = m_CodeGen.BinOp(AND, memLoad, m_CodeGen.TermNode(PUSH, mask));
+			MIRNode *memLoad = GenMemLoad(memOffs, fixed->Size); 
+			MIRNode *field = m_CodeGen.BinOp(AND, memLoad, m_CodeGen.TermNode(PUSH, mask));
 			if (shift>0)
 				return m_CodeGen.BinOp(SHR, field, m_CodeGen.TermNode(PUSH, shift));
 			else
@@ -4362,11 +5247,10 @@ Node *IRLowering::TranslateFieldToInt(Node *node, Node* offset, uint32 size)
 	return NULL;
 }
 
-
-
-Node *IRLowering::GenMemLoad(Node *offsNode, uint32 size)
+MIRNode *IRLowering::GenMemLoad(MIRNode *offsNode, uint32 size)
 {
-	uint16 memOp(0);
+
+	MIROpcodes memOp;
 	switch(size)
 	{
 	case 1:
@@ -4384,22 +5268,23 @@ Node *IRLowering::GenMemLoad(Node *offsNode, uint32 size)
 		break;
 	}
 
-	Node *memLoadNode = m_CodeGen.UnOp(memOp,offsNode);
+	MIRNode *memLoadNode = m_CodeGen.UnOp(memOp,offsNode);
+	
 	if (size == 3)
 		return m_CodeGen.BinOp(AND, memLoadNode, m_CodeGen.TermNode(PUSH, 0xFFF0));
 
 	return memLoadNode;
 }
 
-Node *IRLowering::TranslateCInt(Node *node)
+MIRNode *IRLowering::TranslateCInt(HIRNode *node)
 {
-	Node *child = node->GetLeftChild();
+	HIRNode *child = node->GetLeftChild();
 	nbASSERT(child != NULL, "left child cannot be NULL");
 
 	if (child->Op == IR_CHGBORD)
 	{
 		// change byte order
-		Node *node = child->GetLeftChild();
+		HIRNode *node = child->GetLeftChild();
 
 		switch (node->Op)
 		{
@@ -4440,13 +5325,13 @@ Node *IRLowering::TranslateCInt(Node *node)
 			}break;
 		case IR_SVAR:
 			{
-				Node *toInvert = TranslateTree(node);
+				MIRNode *toInvert = TranslateTree(node);
 				switch (node->Sym->SymKind)
 				{
 				case SYM_RT_VAR:
 					{
 						SymbolVarBufRef *ref = (SymbolVarBufRef*)node->Sym;
-						Node *sizeNode = node->GetRightChild();
+						HIRNode *sizeNode = node->GetRightChild();
 						nbASSERT(sizeNode->Op==IR_ICONST, "changebyteorder can accept only members with constant size");
 						uint32 size = ((SymbolIntConst *)sizeNode->Sym)->Value;
 
@@ -4497,12 +5382,13 @@ Node *IRLowering::TranslateCInt(Node *node)
 		nbASSERT(child->Sym != NULL, "child symbol cannot be NULL");
 
 		uint32 size(0);
-		Node *offsNode = child->GetLeftChild();
+		HIRNode *offsNode = child->GetLeftChild();
+		MIRNode *MIRoffsNode = NULL;
 
 		if (offsNode != NULL)
 		{
-			offsNode = TranslateTree(offsNode);
-			Node *lenNode = child->GetRightChild();
+			MIRoffsNode = TranslateTree(offsNode);
+			HIRNode *lenNode = child->GetRightChild();
 			if (lenNode->Op != IR_ICONST)
 			{
 				this->GenerateWarning(string("A buf2int expression must be used with an ICONST value."), __FILE__, __FUNCTION__, __LINE__, 1, 3);
@@ -4517,10 +5403,10 @@ Node *IRLowering::TranslateCInt(Node *node)
 			return TranslateIntVarToInt(child);
 			break;
 		case IR_SVAR:
-			return TranslateStrVarToInt(child, offsNode, size);
+			return TranslateStrVarToInt(child, MIRoffsNode, size);
 			break;
 		case IR_FIELD:
-			return TranslateFieldToInt(child, offsNode, size);
+			return TranslateFieldToInt(child, MIRoffsNode, size);
 			break;
 		default:
 			nbASSERT(false, "CANNOT BE HERE");
@@ -4531,7 +5417,7 @@ Node *IRLowering::TranslateCInt(Node *node)
 	return NULL;
 }
 
-Node *IRLowering::TranslateConstInt(Node *node)
+MIRNode *IRLowering::TranslateConstInt(HIRNode *node)
 {
 	nbASSERT(node->Op == IR_ICONST || node->Op == IR_BCONST, "node must be an IR_ICONST or and IR_BCONST");
 	nbASSERT(node->Sym != NULL, "contained symbol cannot be NULL");
@@ -4542,8 +5428,9 @@ Node *IRLowering::TranslateConstInt(Node *node)
 
 }
 
-Node *IRLowering::TranslateConstStr(Node *node)
-{
+//[icerrato] never used
+//Node *IRLowering::TranslateConstStr(Node *node)
+//{
 	/*nbASSERT(node->Op == IR_SCONST, "node must be an IR_SCONST");
 	nbASSERT(node->Sym != NULL, "contained symbol cannot be NULL");
 	nbASSERT(node->Sym->SymKind = SYM_STR_CONST, "contained symbol must be an STR_CONST");
@@ -4551,10 +5438,10 @@ Node *IRLowering::TranslateConstStr(Node *node)
 
 	return m_CodeGen.UnOp(strConst->MemOffset, strConst->Size);*/
 
-	return NULL;
-}
+//	return NULL;
+//}
 
-Node *IRLowering::TranslateConstBool(Node *node)
+MIRNode *IRLowering::TranslateConstBool(HIRNode *node)
 {
 	//at the moment bool constants are handled like integer variables
 	//indeed they can only be generated by constant folding...
@@ -4562,31 +5449,31 @@ Node *IRLowering::TranslateConstBool(Node *node)
 
 }
 
-Node *IRLowering::TranslateArithBinOp(uint16 op, Node *node)
+MIRNode *IRLowering::TranslateArithBinOp(MIROpcodes op, HIRNode *node)
 {
 	nbASSERT(node->IsBinOp(), "node must be a binary operator");
 	nbASSERT(node->IsInteger(), "node must be an integer operator");
 
-	Node *leftChild = node->GetLeftChild();
-	Node *rightChild = node->GetRightChild();
+	HIRNode *leftChild = node->GetLeftChild();
+	HIRNode *rightChild = node->GetRightChild();
 
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(rightChild != NULL, "right child cannot be NULL");
 
 	//nbASSERT(leftChild->IsInteger(), "left child must be integer");
 	//nbASSERT(rightChild->IsInteger(), "right child must be integer");
-	Node *left = TranslateTree(leftChild);
-	Node *right = TranslateTree(rightChild);
+	MIRNode *left = TranslateTree(leftChild);
+	MIRNode *right = TranslateTree(rightChild);
 	return m_CodeGen.BinOp(op, left, right);
 }
 
-Node *IRLowering::TranslateArithUnOp(uint16 op, Node *node)
+MIRNode *IRLowering::TranslateArithUnOp(MIROpcodes op, HIRNode *node)
 {
 	nbASSERT(node->IsUnOp(), "node must be a unary operator");
 	nbASSERT(node->IsInteger(), "node must be an integer operator");
 
-	Node *leftChild = node->GetLeftChild();
-	Node *rightChild = node->GetRightChild();
+	HIRNode *leftChild = node->GetLeftChild();
+	HIRNode *rightChild = node->GetRightChild();
 
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(rightChild == NULL, "right child should be NULL");
@@ -4601,13 +5488,13 @@ uint32 log2(uint32 X)
 	return (uint32)(log((double)X)/log((double)2));
 }
 
-Node *IRLowering::TranslateDiv(Node *node)
+MIRNode *IRLowering::TranslateDiv(HIRNode *node)
 {
 	nbASSERT(node->IsBinOp(), "node must be a binary operator");
 	nbASSERT(node->IsInteger(), "node must be an integer operator");
 
-	Node *leftChild = node->GetLeftChild();
-	Node *rightChild = node->GetRightChild();
+	HIRNode *leftChild = node->GetLeftChild();
+	HIRNode *rightChild = node->GetRightChild();
 
 	nbASSERT(leftChild != NULL, "left child cannot be NULL");
 	nbASSERT(rightChild != NULL, "right child cannot be NULL");
@@ -4620,8 +5507,10 @@ Node *IRLowering::TranslateDiv(Node *node)
 	return m_CodeGen.BinOp(SHR, TranslateTree(leftChild), m_CodeGen.TermNode(PUSH, shiftVal));
 }
 
-Node *IRLowering::TranslateTree(Node *node)
+MIRNode *IRLowering::TranslateTree(HIRNode *node) 
 {
+	nbASSERT(node!=NULL,"node cannot be NULL");
+
 	switch(node->Op)
 	{
 
@@ -4690,7 +5579,7 @@ Node *IRLowering::TranslateTree(Node *node)
 	case IR_SCONST:
 		{
 			SymbolTemp *offset=m_CodeGen.NewTemp(((SymbolStrConst*)node->Sym)->Name + string("_offs"), m_CompUnit.NumLocals);
-			Node *offsetNode=m_CodeGen.TermNode(PUSH, ((SymbolStrConst*)node->Sym)->MemOffset);
+			MIRNode *offsetNode=m_CodeGen.TermNode(PUSH, ((SymbolStrConst*)node->Sym)->MemOffset);
 			m_CodeGen.GenStatement(m_CodeGen.TermNode(LOCST, offset, offsetNode));
 			return m_CodeGen.TermNode(LOCLD,
 				offset,
@@ -4706,25 +5595,34 @@ Node *IRLowering::TranslateTree(Node *node)
 			nbASSERT(node->Sym != NULL, "node symbol cannot be NULL");
 
 			uint32 size(0);
-			Node *offsNode = node->GetLeftChild();
+			HIRNode *offsNode = node->GetLeftChild();
+			MIRNode *MIRoffsNode = NULL;
 
 			if (offsNode != NULL)
 			{
-				offsNode = TranslateTree(offsNode);
-				Node *lenNode = node->GetRightChild();
+				MIRoffsNode = TranslateTree(offsNode);
+				HIRNode *lenNode = node->GetRightChild();
 				nbASSERT(lenNode->Op == IR_ICONST, "lenNode should be an IR_ICONST");
 				size = ((SymbolIntConst*)lenNode->Sym)->Value;
+			}
+			
+			if(translForRegExp==OFFSET)
+				return MIRoffsNode;
+
+			if(translForRegExp==SIZE){ 
+				translForRegExp=NOTHING;
+				return m_CodeGen.TermNode(PUSH,size);
 			}
 
 			switch (node->Sym->SymKind)
 			{
 			case SYM_RT_VAR:
-				{
+				{	
 					SymbolVarBufRef *ref = (SymbolVarBufRef*)node->Sym;
 
 					if (ref->RefType == REF_IS_PACKET_VAR) {
-						nbASSERT(offsNode != NULL, "offsNode should be != NULL");
-						return GenMemLoad(offsNode, size);
+						nbASSERT(MIRoffsNode != NULL, "offsNode should be != NULL");
+						return GenMemLoad(MIRoffsNode, size);
 					} else if (ref->RefType == REF_IS_REF_TO_FIELD) {
 						SymbolTemp *indexTemp = ref->IndexTemp;
 						if (indexTemp == 0)
@@ -4784,7 +5682,11 @@ Node *IRLowering::TranslateTree(Node *node)
 		break;
 
 	case IR_REGEXFND:
-		//TranslateRelOpRegEx(expr, jcInfo);
+		//TranslateRelOpRegExStrMatch(expr, jcInfo, string("regexp"));
+		break;
+	
+	case IR_STRINGMATCHINGFND:
+		//TranslateRelOpRegExStrMatch(expr, jcInfo, string("stringmatching"));
 		break;
 
 		/*
@@ -4819,7 +5721,6 @@ Node *IRLowering::TranslateTree(Node *node)
 	return NULL;
 }
 
-
 void IRLowering::TranslateStatement(StmtBase *stmt)
 {
 	m_TreeDepth = 0;
@@ -4838,7 +5739,7 @@ void IRLowering::TranslateStatement(StmtBase *stmt)
 		break;
 
 	case STMT_SWITCH:
-		TranslateSwitch((StmtSwitch*)stmt);
+		TranslateSwitch((HIRStmtSwitch*)stmt);
 		break;
 	case STMT_COMMENT:
 		m_CodeGen.CommentStatement(stmt->Comment);
@@ -4870,7 +5771,7 @@ void IRLowering::TranslateStatement(StmtBase *stmt)
 }
 
 
-void IRLowering::GenerateInfo(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation)
+void IRLowering::GenerateInfo(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation)
 {
 	if (m_GlobalSymbols.GetGlobalInfo().Debugging.DebugLevel >= requiredDebugLevel)
 	{
@@ -4881,18 +5782,19 @@ void IRLowering::GenerateInfo(string message, char *file, char *function, int li
 }
 
 
-void IRLowering::GenerateWarning(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation)
+void IRLowering::GenerateWarning(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation)
 {
 	if (m_GlobalSymbols.GetGlobalInfo().Debugging.DebugLevel >= requiredDebugLevel)
 	{
 		if (m_Protocol!=NULL)
+
 			message=string("(")+this->m_Protocol->Name+string(") ").append(message);
 		nbPrintDebugLine((char *)message.c_str(), DBG_TYPE_WARNING, file, function, line, indentation);
 	}
 }
 
 
-void IRLowering::GenerateError(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation)
+void IRLowering::GenerateError(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation)
 {
 	if (m_GlobalSymbols.GetGlobalInfo().Debugging.DebugLevel >= requiredDebugLevel)
 	{

@@ -15,8 +15,6 @@
 #include "../nbee/globals/utils.h"
 
 
-
-
 extern int CurrentElementType;
 
 // Pointer to the last lookup table encountered in the parsing
@@ -1666,8 +1664,7 @@ char* Attribute;
 	Attribute= GetXMLAttribute(Attributes, NETPDL_FIELD_ATTR_ENDTOKEN);
 	if (Attribute)
 	{
-		NetPDLElement->EndTokenString= (unsigned char *) AllocateAsciiString(Attribute, &(NetPDLElement->EndTokenStringSize), 0, 1);
-
+		NetPDLElement->EndTokenString= (unsigned char *) AllocateAsciiString(Attribute, &(NetPDLElement->EndTokenStringSize),/*0*/ 1, 1); //sara
 		if (NetPDLElement->EndTokenString == NULL)
 		{
 			errorsnprintf(__FILE__, __FUNCTION__, __LINE__, ErrBuf, ErrBufSize, "Not enough memory for building the protocol database.");
@@ -3638,7 +3635,7 @@ int Result;
 }
 
 
-char* GetXMLAttribute(const Attributes& Attributes, char* AttributeName)
+char* GetXMLAttribute(const Attributes& Attributes, const char* AttributeName)
 {
 static char TmpBufAscii[2048];
 static XMLCh TmpBufXML[2048];

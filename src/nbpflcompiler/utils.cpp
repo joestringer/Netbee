@@ -50,6 +50,47 @@ int32 IPaddr2int(const char *addr, uint32 *num)
 
 }
 
+int32 MACaddr2int(const char *addr, uint32 *num)
+{
+	nbASSERT(false,"MAC address not supported now");
+
+	// uint8 tmp[6];
+	uint32 byte;
+	char aux[3];
+
+	for (int i = 0, j = 0; i < 6; i++,j+=3)
+	{
+		aux[0]=addr[j];
+		aux[1]=addr[j+1];
+		byte=0;
+		for(int k=0;k<2;k++){
+			uint32 numero;
+			switch(aux[k]){
+				case '0' ... '9':
+					numero = aux[k]-'0';
+					break;	
+				case 'A' ... 'F':
+					numero = aux[k]-'A'+10;
+					break;	
+				case 'a' ... 'f':			
+					numero = aux[k]-'a'+10;				
+					break;
+			}
+			if(k==0)
+				numero*=10;
+			byte+=numero;
+				
+		}
+		if (byte > 255)
+			return -1;
+		// tmp[i] = byte;
+	}
+
+	//num = (tmp[0] << 40) + (tmp[1] << 32) + (tmp[2] << 24) + (tmp[3] << 16) + (tmp[4] << 8) +tmp[5];
+	return 0;
+
+}
+
 int32 str2int(const char *s, uint32 *num, uint8 base)
 {
 	uint32 n;

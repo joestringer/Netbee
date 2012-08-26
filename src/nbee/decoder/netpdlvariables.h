@@ -35,5 +35,6 @@ public:
 	virtual ~CNetPDLVariables();
 
 	void DoGarbageCollection(int TimestampSec);
+        using CNetPDLLookupTables::DoGarbageCollection;
 };
 

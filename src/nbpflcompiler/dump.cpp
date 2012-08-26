@@ -10,7 +10,7 @@
 #include "tree.h"
 #include "symbols.h"
 #include "dump.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include <iomanip>
 #include <list>
 #include <string.h>
@@ -21,7 +21,6 @@
 #define TREE_NODE	"node%u_%u"
 #define STMT_NODE	"stmt%u"
 #define TAB_CHAR	"  "
-
 /*
 
 int dumpstr(char* Buffer, int BufSize, char *Format, ...)
@@ -47,6 +46,8 @@ return WrittenBytes;
 
 void CodeWriter::DumpSymbol(Symbol *sym)
 {
+	nbASSERT(sym!=NULL,"DumpSymbol: Symbol cannot be NULL!");	
+	
 	switch (sym->SymKind)
 	{
 	case SYM_PROTOCOL:
@@ -138,6 +139,17 @@ void CodeWriter::DumpSymbol(Symbol *sym)
 			SymbolLookupTableItem *item=(SymbolLookupTableItem *)sym;
 			m_Stream << item->Table->Name << "." << item->Name;
 		}break;
+	case SYM_RT_LOOKUP: //[icerrato]
+		{
+			SymbolLookupTable *lookuptable=(SymbolLookupTable *)sym;
+			m_Stream << lookuptable->Name << ", " << lookuptable->MaxExactEntriesNr << ", " << lookuptable->MaxMaskedEntriesNr;
+			if(lookuptable->Validity == TABLE_VALIDITY_STATIC)
+				m_Stream << ", static";
+			else if(lookuptable->Validity == TABLE_VALIDITY_DYNAMIC)
+				m_Stream << ", dynamic";
+			else
+				nbASSERT(false, "validy of a lookup table must be TABLE_VALIDITY_STATIC or TABLE_VALIDITY_DYNAMIC");		
+		}break;
 	default:
 		nbASSERT(false, "DUMP SYMBOL: CANNOT BE HERE");
 		break;
@@ -150,9 +162,9 @@ void CodeWriter::DumpOpcode(uint16 opcode)
 	if (opcode == IR_LABEL)
 		return;
 
-	if (opcode > HIR_LAST_OP)
-	{
-		m_Stream << NvmOps[opcode - HIR_LAST_OP - 1].Name;
+	if (opcode > mir_first_op)
+	{	
+		m_Stream << NvmOps[opcode - mir_first_op -1].Name; 
 		return;
 	}
 
@@ -258,6 +270,7 @@ void CodeWriter::DumpFieldDetails(Node *node, uint32 level)
 
 	SymbolField *field = (SymbolField*)node->Sym;
 	m_Stream << field->Name << "{";
+	
 	switch(field->FieldType)
 	{
 	case PDL_FIELD_FIXED:
@@ -368,14 +381,16 @@ void CodeWriter::DumpFieldDetails(Node *node, uint32 level)
 	m_Stream << "}";
 }
 
-void CodeWriter::DumpFieldDetails(PFLMIRNode *node, uint32 level)
+//TODO: [icerrato]
+void CodeWriter::DumpFieldDetails(MIRONode *node, uint32 level)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 	nbASSERT(GET_OP(node->OpCode) == OP_FIELD, "node must be a OP_FIELD");
 	nbASSERT(node->Sym->SymKind == SYM_FIELD, "terminal node symbol must be a SYM_FIELD");
-
+	
 	SymbolField *field = (SymbolField*)node->Sym;
 	m_Stream << field->Name << "{";
+	
 	switch(field->FieldType)
 	{
 	case PDL_FIELD_FIXED:
@@ -431,7 +446,7 @@ void CodeWriter::DumpFieldDetails(PFLMIRNode *node, uint32 level)
 				m_Stream << "type: tokended, token: "<< tokEnded->EndTok;
 			 else if(tokEnded->EndRegEx!=NULL)
 				m_Stream << "type: tokended, regEx: "<< tokEnded->EndRegEx;
-			}
+			}			
 		}break;
 
 
@@ -472,18 +487,19 @@ void CodeWriter::DumpVarDetails(Node *node, uint32 level)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 	nbASSERT(GET_OP(node->Op) == OP_VAR, "node must be a OP_VAR");
-	nbASSERT((node->Sym->SymKind == SYM_RT_VAR) || (node->Sym->SymKind == SYM_TEMP), "terminal node symbol must be a SYM_RTVAR or a SYM_TEMP");
+	nbASSERT((node->Sym->SymKind == SYM_RT_VAR) || (node->Sym->SymKind == SYM_TEMP) || (node->Sym->SymKind == SYM_RT_LOOKUP_ITEM), "terminal node symbol must be a SYM_RTVAR, a SYM_TEMP or a SYM_RT_LOOKUP_ITEM");//[icerrato]
 
 	SymbolVariable *var = (SymbolVariable*)node->Sym;
 	m_Stream << var->Name;
 }
 
-//! Methos to dump Vardetails for PFLMIRNode
-void CodeWriter::DumpVarDetails(PFLMIRNode *node, uint32 level)
+//TODO: [icerrato]
+//! Methos to dump Vardetails for MIRONode
+void CodeWriter::DumpVarDetails(MIRONode *node, uint32 level)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 	nbASSERT(GET_OP(node->OpCode) == OP_VAR, "node must be a OP_VAR");
-	nbASSERT((node->Sym->SymKind == SYM_RT_VAR) || (node->Sym->SymKind == SYM_TEMP), "terminal node symbol must be a SYM_RTVAR or a SYM_TEMP");
+	nbASSERT((node->Sym->SymKind == SYM_RT_VAR) || (node->Sym->SymKind == SYM_TEMP) || (node->Sym->SymKind == SYM_RT_LOOKUP_ITEM), "terminal node symbol must be a SYM_RTVAR, a SYM_TEMP or a SYM_RT_LOOKUP_ITEM");//[icerrato]
 
 	SymbolVariable *var = (SymbolVariable*)node->Sym;
 	m_Stream << var->Name;
@@ -498,7 +514,7 @@ void CodeWriter::DumpTree(Node *node, uint32 level)
 		DumpTreeNetIL(node, level);
 		return;
 	}
-	if (node->Op > HIR_LAST_OP)
+	if (node->Op > mir_first_op)
 	{
 		DumpOpcode(node->Op);
 		m_Stream << "( ";
@@ -601,7 +617,10 @@ void CodeWriter::DumpTree(Node *node, uint32 level)
 	case IR_REGEXFND:
 		{
 			nbASSERT(node->Sym != NULL, "regexp statement must contain a valid symbol");
-			SymbolRegEx *regexp=(SymbolRegEx *)node->Sym;
+			SymbolRegEx *genericRegexp=(SymbolRegEx *)node->Sym;
+			nbASSERT(genericRegexp->MyType()==NETPDL,"Only netpdl regexp can be dumped!");
+			SymbolRegExPDL *regexp=(SymbolRegExPDL *)genericRegexp;
+			
 			DumpTree(regexp->Offset);
 			m_Stream << ", '" << regexp->Pattern->Name << "', ";
 			if (regexp->CaseSensitive)
@@ -626,7 +645,8 @@ void CodeWriter::DumpTree(Node *node, uint32 level)
 	m_Stream << " )";
 }
 
-void CodeWriter::DumpTree(PFLMIRNode *node, uint32 level)
+//TODO: [icerrato]
+void CodeWriter::DumpTree(MIRONode *node, uint32 level)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 	//DumpTabLevel(level);
@@ -635,10 +655,10 @@ void CodeWriter::DumpTree(PFLMIRNode *node, uint32 level)
 		DumpTreeNetIL(node, level);
 		return;
 	}
-	if (node->OpCode > HIR_LAST_OP)
+	if (node->OpCode > mir_first_op)
 	{
 		DumpOpcode(node->OpCode);
-		if(node->getDefReg() != PFLMIRNode::RegType::invalid)
+		if(node->getDefReg() != MIRONode::RegType::invalid)
 			m_Stream << "[" << node->getDefReg() << "] ";
 		m_Stream << "( ";
 
@@ -707,7 +727,7 @@ void CodeWriter::DumpTree(PFLMIRNode *node, uint32 level)
 	m_Stream << "( ";
 	switch(node->OpCode)
 	{
-	case IR_DEFFLD:
+	case IR_DEFFLD:	
 		DumpFieldDetails(node->kids[0], level);
 		break;
 	case IR_DEFVARS:
@@ -758,7 +778,7 @@ void CodeWriter::DumpTreeNetIL(Node *node, uint32 level)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 
-	//nbASSERT(node->Op > HIR_LAST_OP, "the opcode is not a NetIL operator");
+	//nbASSERT(node->Op > mir_first_op, "the opcode is not a NetIL operator");
 	if (node->Kids[0])
 		DumpTree(node->Kids[0], level);
 
@@ -836,12 +856,13 @@ void CodeWriter::DumpTreeNetIL(Node *node, uint32 level)
 	m_Stream << endLine;
 }
 
-//Code to dump treeNetil from PFLMIRNode
-void CodeWriter::DumpTreeNetIL(PFLMIRNode *node, uint32 level)
+//TODO: [icerrato]
+//Code to dump treeNetil from MIRONode
+void CodeWriter::DumpTreeNetIL(MIRONode *node, uint32 level)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 
-	//nbASSERT(node->Op > HIR_LAST_OP, "the opcode is not a NetIL operator");
+	//nbASSERT(node->Op > mir_first_op, "the opcode is not a NetIL operator");
 	if (node->kids[0])
 		DumpTree(node->kids[0], level);
 
@@ -900,6 +921,7 @@ void CodeWriter::DumpTreeNetIL(PFLMIRNode *node, uint32 level)
 		nbASSERT(node->SymEx==NULL || node->SymEx->SymKind==SYM_LABEL, "copro.init can specify an extra label symbol");
 		nbASSERT(node->Value>=0, "copro.init can specify a value");
 		if (node->SymEx)
+
 			m_Stream << " " << ((SymbolLabel *)node->Sym)->Name << ", " << ((SymbolLabel *)node->SymEx)->Name;
 		else
 			m_Stream << " " << ((SymbolLabel *)node->Sym)->Name << ", " << node->Value;
@@ -949,8 +971,9 @@ void CodeWriter::DumpJump(StmtJump *stmt, uint32 level)
 
 }
 
+//TODO: [icerrato]
 //! method to print a PFLNODE jump
-void CodeWriter::DumpJump(JumpPFLMIRNode *stmt, uint32 level)
+void CodeWriter::DumpJump(JumpMIRONode *stmt, uint32 level)
 {
 	nbASSERT(stmt != NULL, "stmt cannot be NULL");
 	nbASSERT(stmt->TrueBranch != NULL, "TrueBranch cannot be NULL");
@@ -1004,8 +1027,8 @@ void CodeWriter::DumpJumpNetIL(StmtJump *stmt, uint32 level)
 	}
 }
 
-//method to dump netilcode for JumpPFLMIRNode
-void CodeWriter::DumpJumpNetIL(JumpPFLMIRNode *stmt, uint32 level)
+//method to dump netilcode for JumpMIRONode
+void CodeWriter::DumpJumpNetIL(JumpMIRONode *stmt, uint32 level)
 {
 	//std::cerr << "Sto per stampare il jump:" << std::endl;
 	//stmt->printNode(std::cerr, true);
@@ -1067,7 +1090,7 @@ void CodeWriter::DumpCase(StmtCase *stmt, bool isDefault, uint32 level)
 
 
 //!Code to dump a cse PFLNODE
-void CodeWriter::DumpCase(CasePFLMIRNode *stmt, bool isDefault, uint32 level)
+void CodeWriter::DumpCase(CaseMIRONode *stmt, bool isDefault, uint32 level)
 {
 	DumpTabLevel(level);
 	if (isDefault)
@@ -1153,12 +1176,12 @@ void CodeWriter::DumpSwitch(StmtBase *stmt, uint32 level)
 	m_Stream << "}";
 }
 
-//!code to dump a switch PFLMIRNODE
-void CodeWriter::DumpSwitch(SwitchPFLMIRNode *stmt, uint32 level)
+//!code to dump a switch MIRONode
+void CodeWriter::DumpSwitch(SwitchMIRONode *stmt, uint32 level)
 {
 
 	nbASSERT(stmt->Kind == STMT_SWITCH, "stmt must be of STMT_SWITCH type");
-	SwitchPFLMIRNode *swStmt = dynamic_cast<SwitchPFLMIRNode*>(stmt);
+	SwitchMIRONode *swStmt = dynamic_cast<SwitchMIRONode*>(stmt);
 	if (GenNetIL)
 	{
 		DumpSwitchNetIL(swStmt, level);
@@ -1188,8 +1211,8 @@ void CodeWriter::DumpSwitchNetIL(StmtSwitch *swStmt, uint32 level)
 	DumpTabLevel(level);
 }
 
-//! method to dump SwitchNetil from PFLMIRNode
-void CodeWriter::DumpSwitchNetIL(SwitchPFLMIRNode *swStmt, uint32 level)
+//! method to dump SwitchNetil from MIRONode
+void CodeWriter::DumpSwitchNetIL(SwitchMIRONode *swStmt, uint32 level)
 {
 	DumpTabLevel(level);
 	DumpTree(swStmt->getKid(0), level);
@@ -1216,8 +1239,8 @@ void CodeWriter::DumpBlock(StmtBlock *stmt, uint32 level)
 }
 
 
-//!code to dump a block PFLMIRNode
-void CodeWriter::DumpBlock(BlockPFLMIRNode *stmt, uint32 level)
+//!code to dump a block MIRONode
+void CodeWriter::DumpBlock(BlockMIRONode *stmt, uint32 level)
 {
 	/*
 	string comment;
@@ -1257,6 +1280,7 @@ void CodeWriter::DumpLoop(StmtLoop *stmt, uint32 level)
 void CodeWriter::DumpDoWhile(StmtWhile *stmt, uint32 level)
 {
 	nbASSERT(stmt != NULL, "stmt cannot be NULL");
+
 	nbASSERT(stmt->Kind == STMT_DO_WHILE, "stmt must be a STMT_DO_WHILE");
 	DumpTabLevel(level);
 	m_Stream << "do" << endLine;
@@ -1319,7 +1343,7 @@ void CodeWriter::DumpComment(StmtComment *stmt, uint32 level)
 }
 
 //! Comment dump for PFLNode NEW
-void CodeWriter::DumpComment(CommentPFLMIRNode *stmt, uint32 level)
+void CodeWriter::DumpComment(CommentMIRONode *stmt, uint32 level)
 {
 	DumpTabLevel(level);
 	if (strcmp((const char *)stmt->Comment.c_str(), "")==0)
@@ -1338,7 +1362,8 @@ void CodeWriter::DumpStatement(StmtBase *stmt, uint32 level)
 {
 	//uint32 nodeCount = 0;
 	//char *stmtKind = NULL;
-
+	nbASSERT(stmt != NULL , "stmt cannot be NULL");
+	
 	switch(stmt->Kind)
 	{
 	case STMT_LABEL:
@@ -1351,7 +1376,7 @@ void CodeWriter::DumpStatement(StmtBase *stmt, uint32 level)
 		break;
 	case STMT_GEN:
 		if (!GenNetIL)
-			DumpTabLevel(level + 1);
+			DumpTabLevel(level + 1);	
 		DumpTree(stmt->Forest, level + 1);
 		break;
 	case STMT_JUMP:
@@ -1396,6 +1421,7 @@ void CodeWriter::DumpStatement(StmtBase *stmt, uint32 level)
 		nbASSERT(false, "DUMP_STMT: CANNOT BE HERE");
 		break;
 	}
+	
 	if (stmt->Comment.size() > 0 && stmt->Kind != STMT_COMMENT)
 	{
 		m_Stream << TAB_CHAR << "// " << stmt->Comment;
@@ -1403,7 +1429,7 @@ void CodeWriter::DumpStatement(StmtBase *stmt, uint32 level)
 
 }
 
-void CodeWriter::DumpStatement(StmtPFLMIRNode *stmt, uint32 level)
+void CodeWriter::DumpStatement(StmtMIRONode *stmt, uint32 level)
 {
 	//uint32 nodeCount = 0;
 	//char *stmtKind = NULL;
@@ -1416,7 +1442,7 @@ void CodeWriter::DumpStatement(StmtPFLMIRNode *stmt, uint32 level)
 		m_Stream << ":";
 		break;
 	case STMT_COMMENT:
-		DumpComment((CommentPFLMIRNode*)stmt, level);
+		DumpComment((CommentMIRONode*)stmt, level);
 		break;
 	case STMT_GEN:
 		if (!GenNetIL)
@@ -1425,13 +1451,13 @@ void CodeWriter::DumpStatement(StmtPFLMIRNode *stmt, uint32 level)
 		break;
 	case STMT_JUMP:
 	case STMT_JUMP_FIELD:
-		DumpJump((JumpPFLMIRNode*)stmt, level + 1);
+		DumpJump((JumpMIRONode*)stmt, level + 1);
 		break;
 	case STMT_CASE:
-		DumpCase((CasePFLMIRNode*)stmt, false, level);
+		DumpCase((CaseMIRONode*)stmt, false, level);
 		break;
 	case STMT_SWITCH:
-		DumpSwitch((SwitchPFLMIRNode*)stmt, level + 1);
+		DumpSwitch((SwitchMIRONode*)stmt, level + 1);
 		break;
 	case STMT_IF:
 		nbASSERT(!GenNetIL, "cannot generate NetIL directly from this kind of statement");
@@ -1467,7 +1493,7 @@ void CodeWriter::DumpStatement(StmtPFLMIRNode *stmt, uint32 level)
 		DumpBlock((StmtBlock*)stmt, level + 1);
 		break;
 	case STMT_PHI:
-		DumpPhi((PhiPFLMIRNode*)stmt);
+		DumpPhi((PhiMIRONode*)stmt);
 		break;
 	case STMT_FINFOST:
 		break;
@@ -1485,7 +1511,6 @@ void CodeWriter::DumpStatement(StmtPFLMIRNode *stmt, uint32 level)
 void CodeWriter::DumpCode(CodeList *code, uint32 level)
 {
 	StmtBase *next = code->Front();
-
 	while(next)
 	{
 		if (next->Flags & STMT_FL_DEAD)
@@ -1503,13 +1528,13 @@ void CodeWriter::DumpCode(CodeList *code, uint32 level)
 }
 
 //!Overloaded method to work with PFLNODE
-void CodeWriter::DumpCode(std::list<PFLMIRNode*> *code, uint32 level)
+void CodeWriter::DumpCode(std::list<MIRONode*> *code, uint32 level)
 {
-	typedef std::list<PFLMIRNode*>::iterator it_t;
+	typedef std::list<MIRONode*>::iterator it_t;
 
 	for(it_t i = code->begin(); i != code->end(); i++)
 	{
-		StmtPFLMIRNode *actual = dynamic_cast<StmtPFLMIRNode*>(*i);
+		StmtMIRONode *actual = dynamic_cast<StmtMIRONode*>(*i);
 
 		//if (actual->Flags & STMT_FL_DEAD)
 		//{
@@ -1535,9 +1560,10 @@ void CodeWriter::DumpNetIL(CodeList *code, uint32 level)
 	GenNetIL = false;
 }
 
-//!Method to dump netilcode from a list of PFLMIRnode
-void CodeWriter::DumpNetIL(std::list<PFLMIRNode*> *code, uint32 level)
+//!Method to dump netilcode from a list of MIRONode
+void CodeWriter::DumpNetIL(std::list<MIRONode*> *code, uint32 level)
 {
+
 	GenNetIL = true;
 	DumpCode(code, level);
 	GenNetIL = false;
@@ -1546,6 +1572,7 @@ void CodeWriter::DumpNetIL(std::list<PFLMIRNode*> *code, uint32 level)
 void CodeWriter::DumpSymbol(Symbol *sym, ostream &m_Stream)
 {
 	bool GenNetIL = false;
+	
 	switch (sym->SymKind)
 	{
 	case SYM_PROTOCOL:
@@ -1648,9 +1675,9 @@ void CodeWriter::DumpOpCode_s(uint16_t opcode, ostream& m_Stream)
 	if (opcode == IR_LABEL)
 		return;
 
-	if (opcode > HIR_LAST_OP)
+	if (opcode > mir_first_op)
 	{
-		m_Stream << NvmOps[opcode - HIR_LAST_OP - 1].Name;
+		m_Stream << NvmOps[opcode - mir_first_op - 1].Name;
 		return;
 	}
 
@@ -1659,7 +1686,7 @@ void CodeWriter::DumpOpCode_s(uint16_t opcode, ostream& m_Stream)
 		m_Stream << "." << IRTypeNames[GET_OP_TYPE(opcode)];
 }
 
-void CodeWriter::DumpPhi(PhiPFLMIRNode *stmt, uint32 level)
+void CodeWriter::DumpPhi(PhiMIRONode *stmt, uint32 level)
 {
 	stmt->printNode(m_Stream, true);
 }

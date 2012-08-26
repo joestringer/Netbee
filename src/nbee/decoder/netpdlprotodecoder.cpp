@@ -1459,9 +1459,9 @@ int RetVal;
 
 		case nbNETPDL_ID_CFIELD_LINE:
 		{
-		struct _nbNetPDLElementCfieldLine *CfieldLineElement;
+                  // struct _nbNetPDLElementCfieldLine *CfieldLineElement;
 
-			CfieldLineElement= (struct _nbNetPDLElementCfieldLine *) FieldElement;
+                  // CfieldLineElement= (struct _nbNetPDLElementCfieldLine *) FieldElement;
 
 			// It scans the entire m_packet, until it finds the '0d0a' string (\r\n) (or '\n')
 			while ( ((*FieldLen) + StartingFieldOffset) <= MaxOffsetToBeDecoded )
@@ -1491,9 +1491,9 @@ int RetVal;
 
 		case nbNETPDL_ID_CFIELD_HDRLINE:
 		{
-		struct _nbNetPDLElementCfieldHdrline *CfieldHdrlineElement;
+                  // struct _nbNetPDLElementCfieldHdrline *CfieldHdrlineElement;
 
-			CfieldHdrlineElement= (struct _nbNetPDLElementCfieldHdrline *) FieldElement;
+                  // CfieldHdrlineElement= (struct _nbNetPDLElementCfieldHdrline *) FieldElement;
 
 			// It scans the entire m_packet, until it finds the '0d0a' string (\r\n) (or '\n') not followed by ' ' or '\t'
 			while ( ((*FieldLen) + StartingFieldOffset) <= MaxOffsetToBeDecoded )
@@ -1554,9 +1554,9 @@ int RetVal;
 
 		case nbNETPDL_ID_CFIELD_ASN1:
 		{
-		struct _nbNetPDLElementCfieldASN1 *CfieldASN1Element;
+                  // struct _nbNetPDLElementCfieldASN1 *CfieldASN1Element;
 
-			CfieldASN1Element= (struct _nbNetPDLElementCfieldASN1 *) FieldElement;
+                  // CfieldASN1Element= (struct _nbNetPDLElementCfieldASN1 *) FieldElement;
 
 			//// TEMP FABIO 27/06/2008: ASN.1 encoding support suspended
 			//switch (CfieldASN1Element->Encoding)
@@ -2195,8 +2195,6 @@ int RetVal;
 */
 int CNetPDLProtoDecoder::DecodeSubfield(struct _nbNetPDLElementSubfield *SubfieldElement, unsigned int StartingOffset, unsigned int Size, _nbPDMLField *PDMLParent, int *LoopCtrl, struct _nbPDMLField *AlreadyAllocatedPDMLElement)
 {
-	if (Size >= 0)
-	{
 		if (SubfieldElement->ComplexSubfieldInfo)
 		{
 		struct _nbPDMLField *CurrentPDMLElement;
@@ -2271,7 +2269,6 @@ int CNetPDLProtoDecoder::DecodeSubfield(struct _nbNetPDLElementSubfield *Subfiel
 				m_netPDLVariables->SetVariableNumber(m_netPDLVariables->m_defaultVarList.CurrentProtoOffset, CurrentOffsetBuffer - m_protoStartingOffset);
 			}
 		}
-	}
 
 	return nbSUCCESS;
 }
@@ -3776,11 +3773,11 @@ uint8_t InTheMiddleFailure= false;
 
 		case nbNETPDL_ID_CFIELD_ASN1:
 		{ // Let's perform speculative decoding of current 'asn1' complex field
-		struct _nbNetPDLElementCfieldASN1 *CfieldASN1Element;
+                  // struct _nbNetPDLElementCfieldASN1 *CfieldASN1Element;
 		unsigned int CurrentPortionStartingOffset= 0;
 		unsigned int CurrentPortionSize= 0;
 
-			CfieldASN1Element= (struct _nbNetPDLElementCfieldASN1 *) ChoiceElement->FieldToDecode;
+                // CfieldASN1Element= (struct _nbNetPDLElementCfieldASN1 *) ChoiceElement->FieldToDecode;
 
 			SpeculativeField.Name= (char *) NETPDL_CFIELD_NAME_ASN1;
 

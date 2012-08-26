@@ -1,0 +1,3 @@
+###### List of patterns matching files that should be ignored by Git ######
+## Exclude generated binaries
+netpdlutils

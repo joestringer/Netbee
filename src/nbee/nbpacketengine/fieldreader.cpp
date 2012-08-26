@@ -71,8 +71,9 @@ void nbeeFieldReader::FillDescriptors()
 	for (int index=0; index < FieldDescriptorsVector->NumEntries; index++)
 	{
 		if (FieldDescriptorsVector->FieldDescriptor[index].FieldType == PDL_FIELD_TYPE_ALLFIELDS)
-		{
+		{			
 			int n = *(uint16_t *) &DataInfo[FieldDescriptorsVector->FieldDescriptor[index].Position];
+			
 			FieldDescriptorsVector->FieldDescriptor[index].Valid= true;
 			FieldDescriptorsVector->FieldDescriptor[index].DVct->NumEntries= n;
 

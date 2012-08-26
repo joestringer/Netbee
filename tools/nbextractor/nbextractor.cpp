@@ -75,7 +75,7 @@ char ErrBuf[PCAP_ERRBUF_SIZE + 1] = "";
 int RetVal;	// Generic Variable for return code
 
 // Pcap related structures
-char pcapSourceName[2048] = "";
+// char pcapSourceName[2048] = "";
 pcap_t *PcapHandle = NULL;
 
 // Data for parsing packets and extracting fields
@@ -148,7 +148,16 @@ AnonymizationArgumentList_t AnonymizationIPArgumentList;
 	RetVal= PacketEngine->Compile(ConfigParams.FilterString, nbNETPDL_LINK_LAYER_ETHERNET, ConfigParams.Backends[0].Optimization);
 		if (RetVal == nbFAILURE)
 	{
-		fprintf(stderr, "Error compiling the filter '%s': %s",ConfigParams.FilterString,PacketEngine->GetLastError());
+		fprintf(stderr, "Error compiling the filter '%s': %s\n",ConfigParams.FilterString,PacketEngine->GetLastError());
+		
+		int i = 0;
+		_nbNetPFLCompilerMessages *message=PacketEngine->GetCompMessageList();
+		while (message != NULL)
+		{
+			printf("%3d. %s\n", i++, message->MessageString);
+			message=message->Next;
+		}	
+		
 		return nbFAILURE;
 	}
 
@@ -273,8 +282,8 @@ AnonymizationArgumentList_t AnonymizationIPArgumentList;
 	// In that case, store that code for later use
 	for (int j= 0; j < DescriptorVector->NumEntries; j++)
 	{
-		int RetVal;
-		int FastPrintingFunctionCode;
+	int RetVal;
+	int FastPrintingFunctionCode;
 
 		RetVal= NetPDLUtils->GetFastPrintingFunctionCode(DescriptorVector->FieldDescriptor[j].Proto, DescriptorVector->FieldDescriptor[j].Name, &FastPrintingFunctionCode);
 

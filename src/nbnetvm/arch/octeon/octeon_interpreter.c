@@ -65,10 +65,10 @@ uint32_t _gen_rotr(uint32_t value, uint32_t pos )
 
 void gen_do_switch(uint8_t  *pr_buf, int32_t *pc, uint32_t value)
 {
-	uint32_t npairs = 0, key = 0, target = 0;
-	uint32_t i = 0;
-	uint32_t next_insn = 0;
-	int32_t default_displ;
+uint32_t npairs = 0, key = 0, target = 0;
+uint32_t i = 0;
+uint32_t next_insn = 0;
+int32_t default_displ;
 
 	i=0;
 	default_displ = *(uint32_t*)&pr_buf[*pc];
@@ -125,7 +125,6 @@ void gen_do_switch(uint8_t  *pr_buf, int32_t *pc, uint32_t value)
 		return nvmFAILURE; \
 	} else if (sp >= stacksize && stacksize > 0) { \
 		ERR2("Stack index (%d) exceeds stack size (%d)\n", sp, stacksize); \
-		VERB2(INTERPRETER_VERB, "Stack index (%d) exceeds stack size (%d)\n", sp, stacksize); \
 		return nvmFAILURE; \
 	} else if (sp < (n)) { \
 		ERR2("Instruction needs %d stack element(s) but stack only contains %d\n", n, sp); \
@@ -178,14 +177,7 @@ void gen_do_switch(uint8_t  *pr_buf, int32_t *pc, uint32_t value)
 		ERR5 ("%d/%d: No such register in coprocessor %u: %u (> %u)\n", HandlerState->Handler->OwnerPE->Name, pidx, copro, reg, (HandlerState->PEState ->CoprocTable)[copro] . n_regs); \
 		return nvmFAILURE; \
 	}
-//#else
-//#define NEED_STACK(n)
-//#define LOCALS_CHECK(n)
-//#define DATAMEM_CHECK(n)
-//#define SHAREDMEM_CHECK(n)
-//#define INITEDMEM_CHECK(n)
-//#define COPROCESSOR_CHECK(copro, reg)
-//#endif
+
 
 int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHandlerState *HandlerState)
 {
@@ -209,11 +201,11 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 	uint32_t dopktsend=0;
 	uint32_t inithandler=0;
 
-	#ifdef WIN32
+#ifdef WIN32
 	struct _timeb timebuffer;
-	#else
+#else
 	struct timeb timebuffer;
-	#endif
+#endif
 
 	overflow = 0;
 	sp = 0;
@@ -222,14 +214,18 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 	//entrypoint of the bytecode
 	pr_buf = HandlerState->Handler->ByteCode;
 
-	if (HandlerState->PEState->DataMem) {
+	if (HandlerState->PEState->DataMem)
+	{
 		datamem = HandlerState->PEState->DataMem->Base;
 	}
 	sharedmem = HandlerState->PEState->ShdMem->Base;
-	if (HandlerState->PEState->InitedMem) {
+	if (HandlerState->PEState->InitedMem)
+	{
 		initedmem = HandlerState->PEState->InitedMem->Base;
 		initedmem_size = HandlerState->PEState->InitedMem->Size;
-	} else {
+	}
+	else
+	{
 		initedmem = NULL;
 		initedmem_size = 0;
 	}
@@ -263,35 +259,37 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 			memset(HandlerState->Locals, 0, HandlerState->NLocals * sizeof(uint32_t));
 		}
 	}
-	if (HandlerState->Handler->HandlerType == INIT_HANDLER) {
+	if (HandlerState->Handler->HandlerType == INIT_HANDLER)
+	{
 		/* Init segment */
-		VERB0(INTERPRETER_VERB, "--- Beginning execution of the INIT section for PE ---\n");
 		inithandler=1;
 		xbuffer = NULL;
 		xbufinfo = NULL;
 		pidx = -1;
 	}
-	else {
+	else
+	{
 		/* Push or pull segment */
-		if (HandlerState->Handler->HandlerType == PUSH_HANDLER) {
+		if (HandlerState->Handler->HandlerType == PUSH_HANDLER)
+		{
 			/* Push */
-				VERB0(INTERPRETER_VERB, "--- Beginning execution of the PUSH handler for port num of PE num ---\n");
-    			cvmx_wqe_t * work = cvmx_pow_work_request_sync(CVMX_POW_NO_WAIT);
-				if (work == NULL)
-					printf("il work è nullo\n");
-				printf("il work non è nullo\n");
+    		cvmx_wqe_t * work = cvmx_pow_work_request_sync(CVMX_POW_NO_WAIT);
+			if (work == NULL)
+				printf("il work è nullo\n");
+			printf("il work non è nullo\n");
 				
-				//(**exbuf).PacketBuffer= (uint8_t *)work->packet_ptr.ptr;	
+			//(**exbuf).PacketBuffer= (uint8_t *)work->packet_ptr.ptr;	
 				
-				xbuffer = (**exbuf).PacketBuffer;
-				xbufinfo = (**exbuf).InfoData;
-			}
+			xbuffer = (**exbuf).PacketBuffer;
+			xbufinfo = (**exbuf).InfoData;
+		}
 		else
-			{/* Pull */
-				VERB0(INTERPRETER_VERB, "--- Beginning execution of the PULL handler for port num of PE num ---\n");
-				xbuffer = NULL;
-				xbufinfo = NULL;
-			}
+		{
+			/* Pull */
+			xbuffer = NULL;
+			xbufinfo = NULL;
+		}
+
 		pidx = port;
 
 		/* Push the called port ID on the top of the stack */
@@ -322,7 +320,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				pc++;
 				stack[sp] =  *(int32_t *)&pr_buf[pc];
 				printf("fa la push di %d\n",stack[sp]);
-				VERB4(INTERPRETER_VERB, "%s/%d/push: %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, *(int32_t *)&pr_buf[pc], sp);
 				sp++;
 				pc+=4;
 				break;
@@ -341,8 +338,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 			// Remove the top of the stack
 			case POP:
 				NEED_STACK(1);
-				printf("fa la pop\n");
-				VERB3(INTERPRETER_VERB, "%s/%d/pop; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, sp);
 				sp--;
 				pc++;
 				break;
@@ -414,11 +409,11 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 
 			case SLEEP:
 				NEED_STACK(1);
-				#ifdef WIN32
+#ifdef WIN32
 				_sleep(stack[sp-1]);
-				#else
-				usleep(stack[sp-1] * 1000); // void usleep(unsigned long usec);
-				#endif
+#else
+				usleep(stack[sp-1] * 1000);
+#endif
 				sp--;
 				pc++;
 				break;
@@ -427,7 +422,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 			case DUP:
 				NEED_STACK(1);
 				stack[sp] = stack[sp-1];
-				VERB3(INTERPRETER_VERB, "%s/%d/dup: %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp]);
 				sp++;
 				pc++;
 				break;
@@ -475,8 +469,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				stack[sp-1] = (uint32_t)xbuffer[stack[sp-1]];
-				printf("fa la upload \n");
-				VERB4(INTERPRETER_VERB, "%s/%d/upload.16: loaded %d from exbuf; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], sp);
 				pc++;
 				break;
 
@@ -485,7 +477,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				stack[sp-1] = (int32_t)(nvm_ntohs(*(int16_t *)&xbuffer[stack[sp-1]]));
-				printf("fa la upload di %d\n",stack[sp-1]);
 				pc++;
 				break;
 
@@ -518,7 +509,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(1);
 				DATAMEM_CHECK(stack[sp-1]);
 				stack[sp-1] = (uint32_t)datamem[stack[sp-1]];
-				VERB3(INTERPRETER_VERB, "%s/%d/umload.8: loaded %d from datamem\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
 				pc++;
 				break;
 
@@ -543,7 +533,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(1);
 				DATAMEM_CHECK(stack[sp-1]);
 				stack[sp-1] = (uint32_t)nvm_ntohl(*(uint32_t *)&datamem[stack[sp-1]]);
-				VERB4(INTERPRETER_VERB, "%s/%d/smload.32: loaded %d from datamem; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], sp);
 				pc++;
 				break;
 
@@ -602,7 +591,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(2);
 				DATAMEM_CHECK(stack[sp-1]);
 				datamem[stack[sp-1]] = (int8_t) stack[sp-2];
-				VERB5(INTERPRETER_VERB, "%s/%d/mstore.8: stored %d at datamem %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1], sp);
 				sp -= 2;
 				pc++;
 				break;
@@ -621,7 +609,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK (2);
 				DATAMEM_CHECK(stack[sp-1]);
 				*(int32_t *)&datamem[stack[sp-1]] = nvm_ntohl(stack[sp-2]);
-				VERB5(INTERPRETER_VERB, "%s/%d/mstore.32: stored %d at datamem %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1], sp);
 				sp -= 2;
 				pc++;
 				break;
@@ -659,7 +646,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(2);
 				if (xbuffer != NULL)
 					xbuffer[stack[sp-1]] = (uint8_t) stack[sp-2];
-				VERB4(INTERPRETER_VERB, "%s/%d/pstore.8: stored %d at exbuf %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1]);
 				sp -= 2;
 				pc++;
 				break;
@@ -844,7 +830,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 			// Subtraction the first value on the stack to the second one considered as unsigned 32bit int with overflow control
 			case SUBUOV:
 				NEED_STACK(2);
-				VERB4(INTERPRETER_VERB, "%s/%d/sub.u: %d - %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1]);
 				if (stack[sp-1] > stack[sp-2])
 					overflow=1;
 				stack[sp-2] -= stack[sp-1];
@@ -854,7 +839,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 
 			case MOD:
 				NEED_STACK(2);
-				VERB4(INTERPRETER_VERB, "%s/%d/mode: %d MOD %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1]);
 				stack[sp-2] %= stack[sp-1];
 				sp--;
 				pc++;
@@ -954,14 +938,12 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 
 			// Branch if the first element on the stack is equal to the second one
 			case JCMPEQ:
-				printf("fa la jcmpeq tra %d e %d\n",stack[sp-1], stack[sp-2]);
 				NEED_STACK(2);
-				if (stack[sp-1] == stack[sp-2]) {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.eq: if %d (sp-1) == %d (sp-2): equal => jump\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
+				if (stack[sp-1] == stack[sp-2])
+				{
 					pc += *(int32_t*)&pr_buf[pc+1];
-				} else {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.eq: if %d (sp-1) == %d (sp-2): not equal => go on\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
 				}
+
 				sp-=2;
 				pc+=5;
 				break;
@@ -969,11 +951,9 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 			// Branch if the first element on the stack is not equal to the second one
 			case JCMPNEQ:
 				NEED_STACK(2);
-				if (stack[sp-1] != stack[sp-2]) {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.neq: if %d (sp-1) != %d (sp-2): not equal => jump\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
+				if (stack[sp-1] != stack[sp-2])
+				{
 					pc += *(int32_t*)&pr_buf[pc+1];
-				} else {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.neq: if %d (sp-1) != %d (sp-2): equal => go on\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
 				}
 				sp-=2;
 				pc+=5;
@@ -1018,11 +998,9 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 			// Branch if the second element on the stack is lower than the first one, considering both elements as unsigned int
 			case JCMPL:
 				NEED_STACK(2);
-				if (stack[sp-1] > stack[sp-2]) {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.l: if %d (sp-1) > %d (sp-2): not equal => jump\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
+				if (stack[sp-1] > stack[sp-2])
+				{
 					pc += *(int32_t*)&pr_buf[pc+1];
-				} else {
-					VERB4(INTERPRETER_VERB, "%s/%d/jcmp.l: if %d (sp-1) > %d (sp-2): equal => go on\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2]);
 				}
 				sp-=2;
 				pc+=5;
@@ -1121,7 +1099,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
   						//octRT_SetTime_Now(DISCARDED, HandlerState);
 					}
 				#endif
-				VERB1(INTERPRETER_VERB, "--- End of execution (PE %s) ---\n", HandlerState->Handler->OwnerPE->Name);
 				return ret;
 				break;
 
@@ -1158,14 +1135,12 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(3);
 				utemp1 = stack[sp-1] & stack[sp-3];
 				utemp2 = stack[sp-2] & stack[sp-3];
-				VERB5(INTERPRETER_VERB, "%s/%d/mcmp: comparing %d to %d with mask %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-2], stack[sp-3]);
 				if (utemp1 == utemp2)
 					stack[sp-3] = (int32_t) 0;
 				else if (utemp1 > utemp2)
 					stack[sp-3] = (int32_t) 1;
 				else
 					stack[sp-3] = (uint32_t)(-1);
-				VERB3(INTERPRETER_VERB, "%s/%d/mcmp: returning %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-3]);
 				sp -= 2;
 				pc++;
 				break;
@@ -1222,7 +1197,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(0);
 				pc++;
 				dopktsend=1;
-				VERB3(INTERPRETER_VERB, "+++ %d/%d/pkt.send: sending exchange buffer through port %d\n", HandlerState->Handler->OwnerPE->Name, pidx, *(uint32_t *) &pr_buf[pc]);
 
 #ifdef RTE_PROFILE_COUNTERS
   	//	arch_SetTime_Now(FORWARDED, HandlerState);
@@ -1232,7 +1206,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				ctd_port = *(uint32_t *) &pr_buf[pc];
 				printf("fa la send\n");
 				nvmNetPacket_Send(*exbuf,ctd_port,HandlerState);
-				VERB2(INTERPRETER_VERB, "%s/%d/pkt.send: done\n", HandlerState->Handler->OwnerPE->Name, pidx);
 				pc+=4;
 				break;
 
@@ -1264,7 +1237,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(3);
 				DATAMEM_CHECK(stack[sp-3]);
 				DATAMEM_CHECK(stack[sp-3] + stack[sp-1] - 1);
-				VERB5(INTERPRETER_VERB, "%s/%d/???: Copying %d bytes from data memory %d to exchange buffer %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1], stack[sp-3], stack[sp-2]);
 				for (i = 0; i < stack[sp-1]; i++)
 					xbuffer[stack[sp-2] + i] = datamem[stack[sp-3] + i];
 				sp-=3;
@@ -1538,7 +1510,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				HANDLERS_ONLY;
 				NEED_STACK(2);
 				xbufinfo[stack[sp-1]] = (uint8_t) stack[sp-2];
-				VERB5(INTERPRETER_VERB, "%s/%d/istore.8: stored %d at %d; sp=%d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-2], stack[sp-1], sp);
 				sp -= 2;
 				pc++;
 				break;
@@ -1566,7 +1537,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				stack[sp-1] = (uint32_t)xbufinfo[stack[sp-1]];
-				VERB3(INTERPRETER_VERB, "%s/%d/uiload.8: loaded %u\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
 				pc++;
 				break;
 
@@ -1583,7 +1553,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				stack[sp-1] = (int32_t)xbufinfo[stack[sp-1]];
-				VERB3(INTERPRETER_VERB, "%s/%d/siload.8: loaded %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
 				pc++;
 				break;
 
@@ -1592,7 +1561,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				stack[sp-1] = (int32_t)nvm_ntohs(*(int16_t *)&xbufinfo[stack[sp-1]]);
-				VERB3(INTERPRETER_VERB, "%s/%d/uiload.16: loaded %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
 				pc++;
 				break;
 
@@ -1601,7 +1569,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				HANDLERS_ONLY;
 				NEED_STACK(1);
 				stack[sp-1] = (uint32_t)nvm_ntohl(*(int32_t *)&xbufinfo[stack[sp-1]]);
-				VERB3(INTERPRETER_VERB, "%s/%d/siload.32: loaded %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp-1]);
 				pc++;
 				break;
 
@@ -1614,7 +1581,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				utemp1 = pr_buf[pc];
 				LOCALS_CHECK(utemp1);
 				stack[sp] = (uint32_t) locals[utemp1];
-				VERB4(INTERPRETER_VERB, "%s/%d/locload: loaded %d from local %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp], utemp1);
 				pc+=4;
 				sp++;
 				break;
@@ -1625,7 +1591,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				pc++;
 				utemp1 = pr_buf[pc];
 				LOCALS_CHECK(utemp1);
-				VERB4(INTERPRETER_VERB, "%s/%d/locstore: storing %d in local %d\n", HandlerState->Handler->OwnerPE->Name, pidx, stack[sp - 1], utemp1);
 				locals[utemp1] = stack[sp-1];
 				sp--;
 				pc+=4;
@@ -1637,7 +1602,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(utemp1);
 				sp -= utemp1;
 				utemp2 = nvmHash((uint8_t*)&stack[sp], utemp1 * 4);
-				VERB4(INTERPRETER_VERB, "%s/%d/hash: hashed %d stack values to: %d\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp1, utemp2);
 				stack[sp] = utemp2;
 				sp++;
 				pc++;
@@ -1657,10 +1621,7 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Offset into initedmem
 				COPROCESSOR_CHECK(utemp1, 0);			// We suppose every coprocessor has at least 1 register
-				VERB4(INTERPRETER_VERB, "%s/%d/copro.init: init coprocessor %u, offset %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp1, utemp2);
-				printf("inizializzo il coprocessore num %d\n",utemp1);
 				stack[sp] = (HandlerState->PEState->CoprocTable)[utemp1].init (&(HandlerState->PEState->CoprocTable)[utemp1], initedmem + utemp2);
-				printf("dopo inizializzo il coprocessore\n");
 				sp++;
 				pc += 8;
 				break;
@@ -1670,10 +1631,7 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Coprocessor register
 				COPROCESSOR_CHECK(utemp1, utemp2);
-				printf("faccio la copro in\n");
 				(HandlerState->PEState->CoprocTable)[utemp1].read (&(HandlerState->PEState->CoprocTable)[utemp1], utemp2, &utemp3);		// Read from coprocessor
-//				utemp3 = ntohl(utemp3);
-				VERB5(INTERPRETER_VERB, "%s/%d/copro.in: read from register %u of coprocessor %u: %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp2, utemp1, utemp3);
 				stack[sp] = utemp3;
 				sp++;
 				pc += 8;
@@ -1685,11 +1643,8 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Coprocessor register
 				COPROCESSOR_CHECK(utemp1, utemp2);
-//				utemp3 = htonl(stack[sp - 1]);
 				utemp3 = stack[sp - 1];
-				printf("prima di fare la copro out\n");
 				(HandlerState->PEState -> CoprocTable)[utemp1]. write (&(HandlerState->PEState -> CoprocTable)[utemp1], utemp2, &utemp3);		// Write to coprocessor
-				VERB5(INTERPRETER_VERB, "%s/%d/copro.out: wrote to register %u of coprocessor %u: %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp2, utemp1, utemp3);
 				sp--;
 				pc += 8;
 				break;
@@ -1699,9 +1654,7 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				utemp1 = *(uint32_t *) &(pr_buf[pc]);		// Coprocessor ID
 				utemp2 = *(uint32_t *) &(pr_buf[pc + 4]);	// Coprocessor operation
 				COPROCESSOR_CHECK(utemp1, 0);
-				printf("prima di fare la copro run\n");
 				(HandlerState->PEState -> CoprocTable)[utemp1]. invoke (&(HandlerState->PEState ->CoprocTable)[utemp1], utemp2);
-				VERB4(INTERPRETER_VERB, "%s/%d/copro.invoke: invoked operation %u on coprocessor %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp2, utemp1);
 				pc += 8;
 				break;
 
@@ -1711,7 +1664,6 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				// 2nd arg momentarily unused
 				COPROCESSOR_CHECK(utemp1, 0);
 				(HandlerState->PEState -> CoprocTable)[utemp1] . xbuf = *exbuf;
-				VERB1(INTERPRETER_VERB, "Exchange buffer passed to coprocessor %d\n", utemp1);
 				pc += 8;
 				break;
 
@@ -1721,32 +1673,37 @@ int32_t octRT_Execute_Handlers(nvmExchangeBuffer **exbuf, uint32_t port, nvmHand
 				NEED_STACK(0);
 				pc++;
 				utemp1 = *(uint32_t *) &pr_buf[pc];
-				if ( HandlerState->PEState->ShdMem == NULL && HandlerState->PEState->ShdMem->Size == 0) {
+				if ( HandlerState->PEState->ShdMem == NULL && HandlerState->PEState->ShdMem->Size == 0)
+				{
 					/* PE wants to use shared memory, and it is the first one making such a request.
 					   So, allocate the memory. */
-					if (utemp1 > 0) {
+					if (utemp1 > 0)
+					{
 						sharedmem_size = utemp1;
 						sharedmem = (uint8_t *) malloc (utemp1);
-						if (sharedmem == NULL) {
+						if (sharedmem == NULL)
+						{
 							ERR1("%s: Error in shared memory allocation\n", HandlerState->Handler->OwnerPE->Name);
 							return nvmFAILURE;
 						}
-					} else {
+					}
+					else
+					{
 						sharedmem = NULL;
 						sharedmem_size = 0;
 					}
 					HandlerState->PEState->ShdMem = (nvmMemDescriptor *)sharedmem;
 					HandlerState->PEState->ShdMem->Size = sharedmem_size;
-					//HandlerState->PEState -> sml = sharedmem_size;
-					VERB4(INTERPRETER_VERB, "%s/%d/Allocated shared memory: %u bytes at %p\n", HandlerState->Handler->OwnerPE->Name, pidx, sharedmem_size, sharedmem);
-				} else if (utemp1 == HandlerState->PEState->ShdMem->Size) {
+				}
+				else if (utemp1 == HandlerState->PEState->ShdMem->Size)
+				{
 					/* PE wants to use shared memory, and this has already been allocated by a previous
 					   PE. The requested size matches the allocated size. Just init needed variables. */
-					VERB3(INTERPRETER_VERB, "%s/%d/Shared memory size request OK: %u\n", HandlerState->Handler->OwnerPE->Name, pidx, utemp1);
 					sharedmem = (uint8_t *) HandlerState->PEState->ShdMem;
 					sharedmem_size = HandlerState->PEState->ShdMem->Size;
-					//HandlerState->PEState -> sml = sharedmem_size;
-				} else {
+				}
+				else
+				{
 					/* PE wants to use shared memory, and this has already been allocated. Although, the
 					   requested size differs with what has been allocated. Return an error. */
 					ERR1("%s: Requested shared memory size differs with previously allocated size.\n", HandlerState->Handler->OwnerPE->Name);

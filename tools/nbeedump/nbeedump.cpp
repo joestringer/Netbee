@@ -95,7 +95,7 @@ needs to communicate to the callback function
 struct DecoderInfo
 {
 	nbPSMLReader	*PSMLReader;	//!< Reference to the PSML reader
-	int				*PacketCounter;	//!< Holds the number of packets that reach the callback function (i.e. the ones that have been accepted by the filter)
+	u_long				*PacketCounter;	//!< Holds the number of packets that reach the callback function (i.e. the ones that have been accepted by the filter)
 	nbPacketDecoder *Decoder;		//!< Reference to the Packet Decoder
 	pcap_t			*fp;			//!< The actual data-link layer type (needed by the Packet Decoder)
 
@@ -114,7 +114,7 @@ accepted packets counter
 int32_t PrintNothingCallback(nvmExchangeBuffer *xbuffer)
 {
 	DecoderInfo *info = (DecoderInfo*)xbuffer->UserData;
-	int *PacketCounter = info->PacketCounter;
+	u_long *PacketCounter = info->PacketCounter;
 	(*PacketCounter)++;
 
 	// Save packets if needed
@@ -148,7 +148,7 @@ provided by the NetBee Packet Decoder.
 int32_t PrintPacketSummaryCallback(nvmExchangeBuffer *xbuffer)
 {
 	DecoderInfo *info = (DecoderInfo*)xbuffer->UserData;
-	int *PacketCounter = info->PacketCounter;
+	u_long *PacketCounter = info->PacketCounter;
 
 	nbPacketDecoder *Decoder = info->Decoder;
 	nbPSMLReader *PSMLReader = info->PSMLReader;
@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
 {
 //pcap related structures
 char ErrBuf[PCAP_ERRBUF_SIZE + 1] = "";
-char pcapSourceName[2048] = "";
+// char pcapSourceName[2048] = "";
 pcap_t *fp = NULL;
 char CurrentFileName[2024];
 int CurrentFileNumber;
@@ -244,11 +244,10 @@ nbPacketEngine *PacketEngine;
 
 //NetVM related structures
 char netvmErrBuf[nvmERRBUF_SIZE] = "";
-int count = 0, accepted=0;
-char *generatedCode = NULL;
+u_long count = 0;
 nvmRuntimeEnvironment *NetVMRTEnv;
 
-int PacketCounter = 0;
+u_long PacketCounter = 0;
 
 // whether this tool should return a clean return value or not
 // this is needed because of the many jumps to the "cleanup" label, that is immediately before successful return
@@ -297,10 +296,6 @@ bool returnCleanly = false;
 
 	if (ConfigParams.FilterString)
 	{
-		unsigned char dumpCode=ConfigParams.DumpCode;
-		if (ConfigParams.Backends[1].Id >= 0)
-			dumpCode= false;
-
 		PacketEngine->SetDebugLevel(ConfigParams.DebugLevel);
 		PacketEngine->SetNetILCodeFilename(ConfigParams.DumpCodeFilename);
 
@@ -317,7 +312,6 @@ bool returnCleanly = false;
 		printf("Compiling filter '%s'...\n", ConfigParams.FilterString);
 
 		int compRes = PacketEngine->Compile(ConfigParams.FilterString, nbNETPDL_LINK_LAYER_ETHERNET, ConfigParams.Backends[0].Optimization);
-		generatedCode = NULL;
 
 		if (ConfigParams.DebugLevel > 0)
 			PrintCompMessages("\nNetPFL filter compilation", compRes, PacketEngine->GetCompMessageList());
@@ -585,7 +579,7 @@ bool returnCleanly = false;
 		}
 	}
 
-	printf("\nPackets read: %u, accepted: %u, filtered: %u\n\n", count, PacketCounter, count-PacketCounter);
+	printf("\nPackets read: %lu, accepted: %lu, filtered: %lu\n\n", count, PacketCounter, count-PacketCounter);
 
 	NetVMRTEnv= PacketEngine->GetNetVMRuntimeEnvironment();
 	nvmPrintStatistics(NetVMRTEnv);

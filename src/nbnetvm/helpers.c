@@ -22,7 +22,7 @@
 
 //#define errsnprintf nvmsnprintf
 
-int errsnprintf(char* buffer, int bufsize, char *format, ...)
+int errsnprintf(char* buffer, int bufsize, const char *format, ...)
 {
 int writtenbytes;
 va_list args;

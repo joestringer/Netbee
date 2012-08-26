@@ -219,9 +219,9 @@ int CurrentItem;
 	ConfigParams.Backends[0].Optimization= true;
 	ConfigParams.Backends[1].Id= -1;
 	ConfigParams.Backends[1].Optimization= true;
-	ConfigParams.DumpCodeFilename = nbNETPFLCOMPILER_DEBUG_NETIL_CODE_FILENAME;
 
 #ifdef	_DEBUG
+	ConfigParams.DumpCodeFilename = nbNETPFLCOMPILER_DEBUG_NETIL_CODE_FILENAME;
 	ConfigParams.DumpHIRCodeFilename = nbNETPFLCOMPILER_DEBUG_HIR_CODE_FILENAME;
 	ConfigParams.DumpLIRCodeFilename = nbNETPFLCOMPILER_DEBUG_LIR_CODE_FILENAME;
 	ConfigParams.DumpNetILGraphFilename = nbNETPFLCOMPILER_DEBUG_NETIL_GRAPH_FILENAME;

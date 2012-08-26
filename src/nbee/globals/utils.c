@@ -40,7 +40,7 @@ va_start(Args, Format);
 };
 
 
-int sstrncat(char *Destination, char *Source, int DestSize)
+int sstrncat(char *Destination, const char *Source, int DestSize)
 {
 char *EndPos;
 char *Start;
@@ -65,7 +65,7 @@ char *Start;
 };
 
 
-int sstrncpy(char *Destination, char *Source, int DestSize)
+int sstrncpy(char *Destination, const char *Source, int DestSize)
 {
 char *EndPos;
 char *Start;
@@ -196,7 +196,7 @@ void nbGetLastError(const char *CallerString, char *ErrBuf, int ErrBufSize)
 }
 
 
-void nbGetLastErrorEx(char *File, char *Function, int Line, const char *CallerString, char *ErrBuf, int ErrBufSize)
+void nbGetLastErrorEx(const char *File, const char *Function, int Line, const char *CallerString, char *ErrBuf, int ErrBufSize)
 {
 #ifdef WIN32
 	int RetVal;

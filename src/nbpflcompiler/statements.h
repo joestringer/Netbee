@@ -30,19 +30,21 @@
 
 //Fw decl
 struct Node;
+struct HIRNode;
+struct MIRNode;
 struct Symbol;
 struct SymbolLabel;
 struct SymbolProto;
 struct SymbolField;
-class PFLMIRNode;
-class BlockPFLMIRNode;
-class LabelPFLMIRNode;
-class CommentPFLMIRNode;
-class GenPFLMIRNode;
-class JumpPFLMIRNode;
-class JumpFieldPFLMIRNode;
-class CasePFLMIRNode;
-class SwitchPFLMIRNode;
+class MIRONode;
+class BlockMIRONode;
+class LabelMIRONode;
+class CommentMIRONode;
+class GenMIRONode;
+class JumpMIRONode;
+class JumpFieldMIRONode;
+class CaseMIRONode;
+class SwitchMIRONode;
 
 enum StmtKind
 {
@@ -91,7 +93,7 @@ struct StmtBase
 	
 	virtual StmtBase *Clone();
 
-	virtual PFLMIRNode * translateToPFLMIRNode(); 
+	virtual MIRONode * translateToMIRONode(); 
 };
 
 
@@ -182,7 +184,7 @@ public:
 
 struct StmtBlock: public StmtBase
 {
-	friend class BlockPFLMIRNode;
+	friend class BlockMIRONode;
 	CodeList	*Code;
 
 	//this should be private!
@@ -211,25 +213,25 @@ struct StmtBlock: public StmtBase
 		return stmt;
 	}
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 struct StmtLabel: public StmtBase
 {
 
-	friend class LabelPFLMIRNode;
+	friend class LabelMIRONode;
 
 	StmtLabel(void)
 		:StmtBase(STMT_LABEL){}
 	
 	virtual StmtLabel *Clone();
 	
-	virtual PFLMIRNode *translateToPFLMIRNode(); 
+	virtual MIRONode *translateToMIRONode(); 
 };
 
 struct StmtComment: public StmtBase
 {
-	friend class CommentPFLMIRNode;
+	friend class CommentMIRONode;
 	StmtComment(string comment)
 		:StmtBase(STMT_COMMENT)
 	{
@@ -241,12 +243,12 @@ struct StmtComment: public StmtBase
 		return new StmtComment(this->Comment);
 	}
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 struct StmtGen: public StmtBase
 {
-	friend class GenPFLMIRNode;
+	friend class GenMIRONode;
 
 	StmtGen(Node *forest = 0)
 		:StmtBase(STMT_GEN, forest){}
@@ -254,14 +256,12 @@ struct StmtGen: public StmtBase
 	
 	virtual StmtGen *Clone();
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
-
-
 
 struct StmtJump: public StmtBase
 {
-	friend class JumpPFLMIRNode;
+	friend class JumpMIRONode;
 
 	SymbolLabel *TrueBranch;
 	SymbolLabel *FalseBranch;
@@ -277,13 +277,13 @@ struct StmtJump: public StmtBase
 	
 	virtual StmtJump *Clone();
 
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 
 struct StmtJumpField: public StmtJump
 {
-	friend class JumpFieldPFLMIRNode;
+	friend class JumpFieldMIRONode;
 
 	StmtJumpField(SymbolLabel *trueBranch, SymbolLabel *falseBranch = 0, Node *forest = 0)
 		:StmtJump(trueBranch, falseBranch, forest)
@@ -296,13 +296,13 @@ struct StmtJumpField: public StmtJump
 
 	virtual StmtJumpField *Clone();
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 
 struct StmtCase: public StmtBase
 {
-	friend class CasePFLMIRNode;
+	friend class CaseMIRONode;
 
 	StmtBlock *Code;
 	SymbolLabel *Target;
@@ -314,31 +314,20 @@ struct StmtCase: public StmtBase
 	~StmtCase();
 	
 	virtual StmtCase *Clone();
-	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 
 struct StmtSwitch: public StmtBase
 {
-	friend class SwitchPFLMIRNode;
+	friend class SwitchMIRONode;
 
 	CodeList	*Cases;
 	StmtCase	*Default;
 	uint32	NumCases;
 	SymbolLabel *SwExit;
 	bool ForceDefault;
-
-	StmtSwitch(CodeList *cases, Node *expr, StmtCase *def, uint32 numCases, SymbolLabel *swExit, bool forceDefault)
-		:StmtBase(STMT_SWITCH, expr), Cases(cases), Default(def),
-		NumCases(numCases),	SwExit(swExit), ForceDefault(forceDefault){}
 	
-	StmtSwitch(Node *expr = 0)
-		:StmtBase(STMT_SWITCH, expr), Default(0), NumCases(0), SwExit(0), ForceDefault(true)
-	{
-		Cases = new CodeList();
-	}
-
 	~StmtSwitch()
 	{
 		if (Default)
@@ -348,11 +337,51 @@ struct StmtSwitch: public StmtBase
 
 	virtual StmtSwitch *Clone();
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
+	
+protected://[icerrato]
+
+	//contructors
+
+	StmtSwitch(CodeList *cases, Node *expr, StmtCase *def, uint32 numCases, SymbolLabel *swExit, bool forceDefault)
+		:StmtBase(STMT_SWITCH, expr), Cases(cases), Default(def),
+		NumCases(numCases),	SwExit(swExit), ForceDefault(forceDefault){}
+		
+	StmtSwitch(Node *expr = 0)
+		:StmtBase(STMT_SWITCH, expr), Default(0), NumCases(0), SwExit(0), ForceDefault(true)
+	{
+		Cases = new CodeList();
+	}	
 };
+
+//[icerrato]
+struct HIRStmtSwitch: public StmtSwitch 
+{
+	//contructors
+
+	HIRStmtSwitch(CodeList *cases, HIRNode *expr, StmtCase *def, uint32 numCases, SymbolLabel *swExit, bool forceDefault)
+		:StmtSwitch(cases,(Node*)expr,def,numCases,swExit,forceDefault){}
+		
+	HIRStmtSwitch(HIRNode *expr = 0)
+		:StmtSwitch((Node*)expr) {}
+};
+
+//[icerrato]
+struct MIRStmtSwitch: public StmtSwitch 
+{
+	//contructors
+
+	MIRStmtSwitch(CodeList *cases, MIRNode *expr, StmtCase *def, uint32 numCases, SymbolLabel *swExit, bool forceDefault)
+		:StmtSwitch(cases,(Node*)expr,def,numCases,swExit,forceDefault){}
+		
+	MIRStmtSwitch(MIRNode *expr = 0)
+		:StmtSwitch((Node*)expr) {}
+};
+
 
 struct StmtIf: public StmtBase
 {
+
 	StmtBlock *TrueBlock;
 	StmtBlock *FalseBlock;
 
@@ -374,7 +403,7 @@ struct StmtIf: public StmtBase
 	
 	virtual StmtIf *Clone();
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 struct StmtLoop: public StmtBase
@@ -398,7 +427,7 @@ struct StmtLoop: public StmtBase
 	
 	virtual StmtLoop *Clone();
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 struct StmtWhile: public StmtBase
@@ -423,7 +452,7 @@ struct StmtWhile: public StmtBase
 	
 	virtual StmtWhile *Clone();
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 struct StmtCtrl: public StmtBase
@@ -436,7 +465,7 @@ struct StmtCtrl: public StmtBase
 	
 
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 
 struct StmtFieldInfo: public StmtBase
@@ -454,6 +483,6 @@ struct StmtFieldInfo: public StmtBase
 		return new StmtFieldInfo(Field, Position);
 	}
 	
-	virtual PFLMIRNode *translateToPFLMIRNode();
+	virtual MIRONode *translateToMIRONode();
 };
 

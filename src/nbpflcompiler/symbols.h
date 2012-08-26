@@ -153,6 +153,7 @@ struct Symbol
 		:SymKind(kind), IsSupported(true), IsDefined(true){}
 
 	virtual Symbol *copy();
+  virtual ~Symbol() {}
 };
 
 /*!
@@ -347,30 +348,27 @@ struct SymbolLabel: public Symbol
 
 struct SymbolField: public Symbol
 {
+
 	string						Name;
 	PDLFieldType				FieldType;
 	_nbNetPDLElementFieldBase	*PDLFieldInfo;
 	uint32						ID;
-	SymbolProto                 *Protocol;
-	
-	SymbolTemp*					ExtractG;
-	SymbolTemp*					HeaderCount;
+	SymbolProto             	*Protocol;
 	uint32						HeaderIndex;
-	SymbolTemp*					FieldCount;
+	SymbolTemp*					FieldCount;		   
 	FieldsList_t				MultiFields;
+	FieldsList_t				SymbolDefs;			// [ds] contains different definitions for the same symbol
 
-	FieldsList_t				SymbolDefs;	// [ds] contains different definitions for the same symbol
+	SymbolFieldContainer		*DependsOn;			// [ds] the container can be contained in a SymbolFieldContainer
 
-	SymbolFieldContainer		*DependsOn;		// [ds] the container can be contained in a SymbolFieldContainer
-
-	bool			UsedAsInt;			//	[ds] set to True if the field is used at least once in a buf2int()
-	bool			UsedAsArray;		//	[ds] set to True if the field is used at least once in a field[start:len] expression
-	bool			UsedAsString;		//	[ds] set to True if the field is used at least once as string
-	bool			IntCompatible;		//	[ds] set to True if the field can be converted to int (size<=4)
-	bool 			MultiProto;			// true when extracting fields from multiple instances of the same protocol
-	bool			MultiField;			// true when extracting multiple instances of the same field in the same protocol
-	bool			ToExtract;  //	set to True if the field must be extracted
-	uint32          Position;   // contains the position in the ExtractFields list
+	bool						UsedAsInt;			//	[ds] set to True if the field is used at least once in a buf2int()
+	bool						UsedAsArray;		//	[ds] set to True if the field is used at least once in a field[start:len] expression
+	bool						UsedAsString;		//	[ds] set to True if the field is used at least once as string
+	bool						IntCompatible;		//	[ds] set to True if the field can be converted to int (size<=4)
+	bool 						MultiProto;			// true when extracting fields from multiple instances of the same protocol
+	bool						MultiField;			// true when extracting multiple instances of the same field in the same protocol
+	bool						ToExtract;  		//	set to True if the field must be extracted
+	uint32          			Position;   		// contains the position in the ExtractFields list
 
 	
 
@@ -382,8 +380,8 @@ struct SymbolField: public Symbol
 	*/
 
 	SymbolField(const string name, /*nbNetPDLFieldNodeTypes_t*/ PDLFieldType type, _nbNetPDLElementFieldBase *fieldInfo)
-		:Symbol(SYM_FIELD), Name(name), FieldType(type), PDLFieldInfo(fieldInfo),ID(-1), Protocol(0), ExtractG(0),
-		HeaderCount(0), HeaderIndex(0), FieldCount(0), DependsOn(0), UsedAsInt(false), UsedAsArray(false), UsedAsString(false),
+		:Symbol(SYM_FIELD), Name(name), FieldType(type), PDLFieldInfo(fieldInfo),ID(-1), Protocol(0), 
+		/*HeaderCount(0),*/ HeaderIndex(0), FieldCount(0), DependsOn(0), UsedAsInt(false), UsedAsArray(false), UsedAsString(false),
 		IntCompatible(true), MultiProto(false), MultiField(false), ToExtract(false), Position(-1)
 		 {}
 	virtual Symbol *copy();
@@ -404,11 +402,13 @@ struct SymbolFieldFixed: public SymbolFieldContainer
 {
 	SymbolTemp		*IndexTemp;
 	SymbolTemp		*ValueTemp;
+	SymbolTemp		*LenTemp;
 	uint32			Size;
 	StmtBase		*DefPoint;
+	bool			Sensitive;
 
-	SymbolFieldFixed(const string name, uint32 size, _nbNetPDLElementFieldBase *fieldInfo = 0, StmtBase * defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* valueTemp = 0)
-		:SymbolFieldContainer(name, PDL_FIELD_FIXED, fieldInfo), IndexTemp(indexTemp), ValueTemp(valueTemp), Size(size), DefPoint(defPoint) {}
+	SymbolFieldFixed(const string name, uint32 size, _nbNetPDLElementFieldBase *fieldInfo = 0, StmtBase * defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* valueTemp = 0, bool sensitive = false)
+		:SymbolFieldContainer(name, PDL_FIELD_FIXED, fieldInfo), IndexTemp(indexTemp), ValueTemp(valueTemp), Size(size), DefPoint(defPoint), Sensitive(sensitive) {}
 	virtual Symbol *copy();
 };
 
@@ -426,7 +426,7 @@ struct SymbolFieldBitField: public SymbolFieldContainer
 
 struct SymbolFieldPadding: public SymbolField
 {
-	uint32			    Align;
+	uint32			    	Align;
 	StmtBase			*DefPoint;
 
 	SymbolFieldPadding(const string name, uint32 align, _nbNetPDLElementFieldBase *fieldInfo, StmtBase * defPoint = 0)
@@ -441,10 +441,10 @@ struct SymbolFieldVarLen: public SymbolFieldContainer
 	SymbolTemp			*LenTemp;
 	StmtBase			*DefPoint;
 	Node				*LenExpr;
+	bool 				Sensitive;
 
-
-	SymbolFieldVarLen(const string name, _nbNetPDLElementFieldBase *fieldInfo, Node *lenExpr = 0, StmtBase *defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* lenTemp = 0)
-		:SymbolFieldContainer(name, PDL_FIELD_VARLEN, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), DefPoint(defPoint),LenExpr(lenExpr) {}
+	SymbolFieldVarLen(const string name, _nbNetPDLElementFieldBase *fieldInfo, Node *lenExpr = 0, StmtBase *defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* lenTemp = 0, bool sensitive = false)
+		:SymbolFieldContainer(name, PDL_FIELD_VARLEN, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), DefPoint(defPoint),LenExpr(lenExpr), Sensitive(sensitive) {}
 	virtual Symbol *copy();
 };
 
@@ -456,17 +456,18 @@ struct SymbolFieldTokEnd: public SymbolFieldContainer
 	SymbolTemp		*IndexTemp;
 	SymbolTemp		*LenTemp;
 	SymbolTemp		*DiscTemp;
-	unsigned char	*EndTok;
+	unsigned char		*EndTok;
 	uint32			EndTokSize;
 	char			*EndRegEx;
 	Node			*EndOff;
 	Node			*EndDiscard;
 	StmtBase		*DefPoint;
+	bool			Sensitive;
 
 
-	SymbolFieldTokEnd(const string name,unsigned char *endtok, uint32 endtoksize,char *endregex, _nbNetPDLElementFieldBase *fieldInfo, Node *endoff = 0, Node *enddiscard=0, StmtBase *defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* lenTemp = 0,SymbolTemp* discTemp = 0)
+	SymbolFieldTokEnd(const string name,unsigned char *endtok, uint32 endtoksize,char *endregex, _nbNetPDLElementFieldBase *fieldInfo, Node *endoff = 0, Node *enddiscard=0, StmtBase *defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* lenTemp = 0,SymbolTemp* discTemp = 0, bool sensitive = false)
 		:SymbolFieldContainer(name, PDL_FIELD_TOKEND, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), DiscTemp(discTemp), EndTok(endtok), EndTokSize(endtoksize),
-		 EndRegEx(endregex), EndOff(endoff), EndDiscard(enddiscard), DefPoint(defPoint) {}
+		 EndRegEx(endregex), EndOff(endoff), EndDiscard(enddiscard), DefPoint(defPoint), Sensitive(sensitive) {}
 	virtual Symbol *copy();
 };
 
@@ -506,9 +507,10 @@ struct SymbolFieldLine: public SymbolFieldContainer
 	char			*EndTok;
 	uint32			EndTokSize;
 	StmtBase		*DefPoint;
+	bool			Sensitive;
 
-	SymbolFieldLine(const string name, _nbNetPDLElementFieldBase *fieldInfo,StmtBase*defPoint=0,SymbolTemp *indexTemp=0,SymbolTemp *lenTemp=0)
-		:SymbolFieldContainer(name, PDL_FIELD_LINE, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), DefPoint(defPoint)
+	SymbolFieldLine(const string name, _nbNetPDLElementFieldBase *fieldInfo,StmtBase*defPoint=0,SymbolTemp *indexTemp=0,SymbolTemp *lenTemp=0, bool sensitive = false)
+		:SymbolFieldContainer(name, PDL_FIELD_LINE, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), DefPoint(defPoint), Sensitive(sensitive)
 	{
     EndTok=(char *)malloc(10*sizeof(char));
     sprintf(EndTok,"\x0D\x0A|\x0A");
@@ -523,9 +525,10 @@ struct SymbolFieldPattern: public SymbolFieldContainer
 	SymbolTemp		*LenTemp;
 	char			*Pattern;
 	StmtBase		*DefPoint;
+	bool			Sensitive;
 
-	SymbolFieldPattern(const string name,char *pattern, _nbNetPDLElementFieldBase *fieldInfo, StmtBase *defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* lenTemp = 0)
-		:SymbolFieldContainer(name, PDL_FIELD_PATTERN, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), Pattern(pattern), DefPoint(defPoint){}
+	SymbolFieldPattern(const string name,char *pattern, _nbNetPDLElementFieldBase *fieldInfo, StmtBase *defPoint = 0, SymbolTemp* indexTemp = 0, SymbolTemp* lenTemp = 0, bool sensitive = false)
+		:SymbolFieldContainer(name, PDL_FIELD_PATTERN, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), Pattern(pattern), DefPoint(defPoint), Sensitive(sensitive){}
 	virtual Symbol *copy();
 };
 
@@ -534,9 +537,10 @@ struct SymbolFieldEatAll: public SymbolFieldContainer
 	SymbolTemp		*IndexTemp;
 	SymbolTemp		*LenTemp;
 	StmtBase		*DefPoint;
+	bool			 Sensitive;
 
-	SymbolFieldEatAll(const string name, _nbNetPDLElementFieldBase *fieldInfo,StmtBase*defPoint=0,SymbolTemp *indexTemp=0,SymbolTemp *lenTemp=0)
-		:SymbolFieldContainer(name, PDL_FIELD_EATALL, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), DefPoint(defPoint)
+	SymbolFieldEatAll(const string name, _nbNetPDLElementFieldBase *fieldInfo,StmtBase*defPoint=0,SymbolTemp *indexTemp=0,SymbolTemp *lenTemp=0, bool sensitive = false)
+		:SymbolFieldContainer(name, PDL_FIELD_EATALL, fieldInfo), IndexTemp(indexTemp), LenTemp(lenTemp), DefPoint(defPoint), Sensitive(sensitive)
 	{
 	}
 
@@ -599,7 +603,7 @@ struct SymbolVarBufRef: public SymbolVariable
 	SymbolTemp	*LenTemp;
 	SymbolTemp	*ValueTemp;
 
-	SymbolsList_t	ReferredSyms;	//	[ds] list used to save any referred symbols in the NetPDL database
+	SymbolsList_t	ReferredSyms;		//	[ds] list used to save any referred symbols in the NetPDL database
 	bool			UsedAsInt;			//	[ds] set to True if the variable is used at least once in a buf2int()
 	bool			UsedAsArray;		//	[ds] set to True if the variable is used at least once in a variable[start:len] expression
 	bool			UsedAsString;		//	[ds] set to True if the variable is used at least once as string
@@ -714,12 +718,12 @@ struct SymbolVarBuffer: public SymbolVariable
 
 struct SymbolProto: public Symbol
 {
-	string						Name;				//!<protocol name
-	_nbNetPDLElementProto		*Info;				//!<Pointer to the corresponding NetPDL protocol information
+	string						Name;					//!<protocol name
+	_nbNetPDLElementProto		*Info;					//!<Pointer to the corresponding NetPDL protocol information
 	_nbNetPDLElementExecuteX 	*FirstExecuteBefore;	//!<Pointer to the first element of the execute-before
-	uint32						ID;					//!<Index inside the Protocol List of the \ref GlobalInfo structure
-	bool							VerifySectionSupported;
-	bool							BeforeSectionSupported;
+	uint32						ID;						//!<Index inside the Protocol List of the \ref GlobalInfo structure
+	bool						VerifySectionSupported;
+	bool						BeforeSectionSupported;
 
 	double						Level;
 
@@ -729,15 +733,13 @@ struct SymbolProto: public Symbol
 	SymbolTemp*					position;
 	uint32						beginPosition;
 
-	
-	bool proto_MultiField;
-	SymbolTemp*					proto_FieldCount;
-	SymbolTemp*					proto_Extract;
-	FieldsList_t				proto_MultiFields;
+	bool						NeedExtraction; //[icerrato] true if this protocol is involved in field extraction
+	SymbolTemp*					ExtractG;	
+	FieldsList_t				fields_ToExtract; //[icerrato] fields for which the extraction is required
 
 #ifdef OPTIMIZE_SIZED_LOOPS
-	Field2StmtMap_t			Field2SizedLoopMap;
-	Field2StmtMap_t			FieldReferredInSizedLoopMap;
+	Field2StmtMap_t				Field2SizedLoopMap;
+	Field2StmtMap_t				FieldReferredInSizedLoopMap;
 	Stmt2StmtMap_t				SizedLoop2SizedLoopMap;
 	StmtList_t					SizedLoopStack;
 	StmtList_t					SizedLoopToPreserve;
@@ -773,8 +775,8 @@ struct SymbolProto: public Symbol
 
 	SymbolProto(_nbNetPDLElementProto &info, uint32 id)
 		:Symbol(SYM_PROTOCOL), Name(info.Name), Info(&info), ID(id), VerifySectionSupported(true), BeforeSectionSupported(true),
-		 Level(0), ExAllfields(false),NExFields(0),position(0),beginPosition(0)
-		 , proto_MultiField(false)/*, MultiProto(false), HeaderCount(0)*/, proto_FieldCount(0) , proto_Extract(0) /*, HeaderIndex(0) */
+		 Level(0), ExAllfields(false),NExFields(0),position(0),beginPosition(0), NeedExtraction(false)
+		 /*, proto_MultiField(false)*//*, MultiProto(false), HeaderCount(0)*//*, proto_FieldCount(0), ExtractG(0)*/  /*, proto_Extract(0)*/ /*, HeaderIndex(0) */
 #ifdef OPTIMIZE_SIZED_LOOPS
 		, SizedLoopStack(0), SizedLoopToPreserve(0)
 #endif
@@ -803,6 +805,7 @@ enum DataType
 {
 	DATA_TYPE_BYTE,
 	DATA_TYPE_WORD,
+	DATA_TYPE_DOUBLE,
 };
 
 struct SymbolDataItem: public Symbol
@@ -818,18 +821,57 @@ struct SymbolDataItem: public Symbol
 };
 
 
+enum RegExType{
+	NETPDL,
+	NETPFL
+};
 
 struct SymbolRegEx: public Symbol
 {
-	Node *Offset;
 	SymbolStrConst *Pattern;
 	int CaseSensitive;
 	int MatchToReturn;
 	int Id;
-
-	SymbolRegEx(Node *offset, SymbolStrConst *pattern, int caseSensitive, int id)
-		: Symbol(SYM_RT_REGEX), Offset(offset), Pattern(pattern), CaseSensitive(caseSensitive), MatchToReturn(0), Id(id)
+	
+	virtual RegExType MyType(void)=0;
+	
+protected:
+	SymbolRegEx(SymbolStrConst *pattern, int caseSensitive, int id)
+		: Symbol(SYM_RT_REGEX), Pattern(pattern), CaseSensitive(caseSensitive), MatchToReturn(0), Id(id)
 	{}
+};
+
+struct SymbolRegExPDL: public SymbolRegEx //[icerrato]
+{
+	//this structure represents a regular expression defined in the NetPDL database
+
+	Node *Offset;
+	
+	SymbolRegExPDL(Node *offset, SymbolStrConst *pattern, int caseSensitive, int id)
+		: SymbolRegEx(pattern, caseSensitive, id), Offset(offset)
+	{}
+	
+	RegExType MyType(void){
+		return NETPDL;
+	}
+
+};
+
+struct SymbolRegExPFL: public SymbolRegEx //[icerrato]
+{
+	//this structure represents a regular expression required by the NetPFL expression (i.e. keywirds matches and contains are used)
+
+	SymbolTemp *Offset;
+	SymbolTemp *Size;	
+
+	SymbolRegExPFL(SymbolStrConst *pattern, int caseSensitive, int id,SymbolTemp *offset, SymbolTemp *size = 0)
+		: SymbolRegEx(pattern, caseSensitive, id), Offset(offset), Size(size)
+	{}
+	
+	RegExType MyType(void){
+		return NETPFL;
+	}
+
 };
 
 
@@ -1046,6 +1088,7 @@ struct SymbolLookupTable: public Symbol
 				break;
 			offset+=(*i)->Size;
 		}
+
 
 		return offset/sizeof(uint32);
 	}

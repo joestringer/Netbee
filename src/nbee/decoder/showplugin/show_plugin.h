@@ -203,7 +203,7 @@ typedef struct _ShowPluginParams
 typedef struct _ShowPluginList
 {
 	//! Name of the plugin, as it appears in the NetPDL 'showplg' attribute.
-	char *PluginName;
+	const char *PluginName;
 	//! Pointer to the function that implements the plugin.
 	nbShowPluginHandler ShowPluginHandler;
 } _ShowPluginList;

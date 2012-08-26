@@ -98,10 +98,9 @@ bool CFGEdgeSplitter<IR>::run()
 	}
 	//std::cout << "Edge Splitting" << std::endl;
 	std::list<PFLBasicBlock *> *bblist(_cfg.getBBList());
-	std::list<PFLBasicBlock *>::iterator i = bblist->begin();
 	// Iterate over every BB - order is not relevant
 
-	for(; i != bblist->end(); ++i)
+	for(std::list<PFLBasicBlock *>::iterator i = bblist->begin(); i != bblist->end(); ++i)
 	{
 		PFLBasicBlock *bb = (*i);
 		//std::cout << "iterating over BB " << bb->getId() << " " << bb->getStartLabel()->Name << endl;
@@ -128,12 +127,12 @@ bool CFGEdgeSplitter<IR>::run()
 					
 					// insert new edge (current, new)
 					PFLBasicBlock *newbb = _cfg.NewBasicBlock(BB_CODE, NULL);
-					LabelPFLMIRNode *lblStmt = new LabelPFLMIRNode();
-					PFLMIRNode *lblnode = new PFLMIRNode(IR_LABEL, newbb->getStartLabel());
+					LabelMIRONode *lblStmt = new LabelMIRONode();
+					MIRONode *lblnode = new MIRONode(IR_LABEL, newbb->getStartLabel());
 					lblStmt->setKid(lblnode, 0);
 					newbb->getMIRNodeCode()->push_back(lblStmt);
 					_cfg.AddEdge(*(bb->getNode()), *(newbb->getNode()));
-					JumpPFLMIRNode *newjump = new JumpPFLMIRNode(ss->getId(), ss->getStartLabel()); 		
+					JumpMIRONode *newjump = new JumpMIRONode(ss->getId(), ss->getStartLabel()); 		
 					newjump->setOpcode(JUMPW);
 					newbb->getCode().push_back(newjump);
 					

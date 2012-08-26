@@ -21,11 +21,16 @@
 #include "pdlparser.h"
 #include "irlowering.h"
 #include "pflcfg.h"
-
+#include "encapfsa.h"
 #include <map>
+#include "sft/librange/range.hpp"
+#include <stdlib.h>
 
 using namespace std;
 
+#define INFO_FIELDS_SIZE 4 //!< number of bytes for each fields in the info-partition
+#define MAX_PROTO_INSTANCES 5 //!< max number of occurrences of a single protocol handled in the info-partition
+#define MAX_FIELD_INSTANCES 5 //!< max number of occurrences of the same field handled in the info-partition
 
 
 /*!
@@ -35,22 +40,33 @@ using namespace std;
 typedef map<EncapGraph::GraphNode*, EncapGraph::GraphNode*> NodeMap_t;
 
 
+// forward declarations
+class StateCodeInfo;
+
+// typedefs
+typedef map<EncapFSA::State*, StateCodeInfo*> sInfoMap_t;
+typedef pair<EncapFSA::State*, StateCodeInfo*> sInfoPair_t;
+
+
+
 class NetPFLFrontEnd//: public EncapGraph::IGraphVisitor
 {
 private:
 
 	struct FilterCodeGenInfo
-	{
-		FilterSubGraph			&SubGraph;
-		SymbolLabel				*FilterFalseLbl;
-		SymbolLabel				*FilterTrueLbl;
-		//SymbolProto				*Protocol;
+		{
+			EncapFSA				&fsa;
+			SymbolLabel				*FilterFalseLbl;
+			SymbolLabel				*FilterTrueLbl;
+			//SymbolProto				*Protocol;
 
-		FilterCodeGenInfo(FilterSubGraph &subGraph, SymbolLabel *filterTrue, SymbolLabel *filterFalse)
-			:SubGraph(subGraph), FilterFalseLbl(filterFalse),
-			FilterTrueLbl(filterTrue)/*, Protocol(proto)*/ {}
 
-	};
+			FilterCodeGenInfo(EncapFSA &fsa, SymbolLabel *filterTrue, SymbolLabel *filterFalse)
+				:fsa(fsa), FilterFalseLbl(filterFalse),
+				FilterTrueLbl(filterTrue)/*, Protocol(proto)*/ {}
+		};
+
+
 
 
 
@@ -61,7 +77,7 @@ private:
 	GlobalInfo          m_GlobalInfo;
 	GlobalSymbols       m_GlobalSymbols;
 	CompilationUnit	    *m_CompUnit;
-	IRCodeGen           *m_LIRCodeGen;
+	MIRCodeGen           *m_MIRCodeGen;
 	IRLowering          *m_NetVMIRGen;
 	bool                m_StartProtoGenerated;
 	//FilterCodeGenInfo *m_ProtoFilterInfo;
@@ -72,6 +88,7 @@ private:
 	ostream	            *PFL_Tree;
 	string              NetIL_FilterCode;
 	FieldsList_t        m_FieldsList;   //!< Fields that will be extracted
+	EncapFSA			*m_fsa;			//!< fsa related to the entire fitlering expression
 
 #ifdef OPTIMIZE_SIZED_LOOPS
 	FieldsList_t        m_ReferredFieldsInFilter;
@@ -82,37 +99,105 @@ private:
 	SymbolProto         *m_Protocol;
 #endif
 
+        std::pair<string, JumpInfo*> initMapItem(string name,
+                                                 PFLExpression *expr,
+                                                 SymbolLabel *trueLabel,
+                                                 SymbolLabel *falseLabel);
 
-	void GenProtoCode(SymbolProto *proto, FilterCodeGenInfo &protoFilterInfo, bool encap = true, bool fieldExtract = false);
+	void GenProtoCode(EncapFSA::State *stateFrom, FilterCodeGenInfo &protoFilterInfo, const sInfoMap_t statesInfo, bool fieldExtraction);
+	
+        // this data structure and method are needed inside GenProtoCode()
+        struct EarlyCodeEmission_t
+        {
+          SymbolLabel *start_lbl;
+          SymbolProto *protocol;
+          SymbolLabel *where_to_jump_after;
+        };
 
-	void GenCode(PFLStatement *filterExpr);
+        SymbolLabel* setupEarlyCode(std::map<string,EarlyCodeEmission_t>* m,
+                                            SymbolProto *p,
+                                            SymbolLabel *jump_after/*, SymbolLabel *jump_after_after*/, bool needFormat);
 
-	void GenProtoHIR(EncapGraph::GraphNode &node, FilterCodeGenInfo &protoFilterInfo, bool encap, bool fieldExtract);
+        /* Generate code for the provided ExtendedTransition, using
+         * the (provided as well) IRCodeGen. Use the map to resolve
+         * label references towards external states (those that are
+         * part of the general FSA). The defaultFailure label should
+         * be used whenever a generic failure jump must be handled.
+         */
+        void GenerateETCode(EncapFSA::ExtendedTransition *et, const sInfoMap_t stateMappings, SymbolLabel *defaultFailure, HIRCodeGen *codeGenerator, bool fieldExtraction,EncapLabel_t input_symbol);
+        
+        /*Generate the code for the provided symbol */
+        void GenerateSymbolsCode(EncapLabel_t symbol, SymbolLabel* destination);
+
+        // the following group of types and methods is used by the previous method
+        struct ETCodegenCB_info_t {
+          NetPFLFrontEnd *instance;
+          Symbol/*Field*/ *cur_sym;				//this is a general symbol, because an exended transition can be on a field or a variable
+          map<unsigned long,SymbolLabel *> substates;
+          stack<IRCodeGen *> codeGens;
+          SymbolLabel *dfl_fail_label; // label to jump to for default failure
+        };
+        static HIROpcodes rangeOpToIROp(RangeOperator_t op);
+        static void ETCodegenCB_newlabel(unsigned long id, string proto_field_name, void *ptr);
+        static void ETCodegenCB_range(RangeOperator_t r, uint32 sep, void *ptr);
+        static void ETCodegenCB_punct(RangeOperator_t r, const map<uint32,unsigned long> &mappings, void *ptr);
+        static void ETCodegenCB_jump(unsigned long id, void *ptr);
+	static void ETCodegenCB_special(RangeOperator_t r, std::string val, void *ptr);
+
+        /* Generate and emit the before code (if applicable) for the provided protocol
+         * Returns true if code was actually generated, false otherwise
+         */
+        bool GenerateBeforeCode(SymbolProto *proto);
+
+        /* Extract an IR expression from an arbitrary complex
+         * PFLExpression, using the provided code generator if needed.
+         *
+         * Return NULL if this is impossible (predicates on different
+         * protocols).
+         */
+        //HIRNode* extractComplexIRExpr(PFLExpression *expr, HIRCodeGen *codeGen); [icerrato]UNUSED
+
+	int GenCode(PFLStatement *filterExpr);
 
 
-	void CloneHIR(CodeList &code, IRCodeGen &codegen);
+        // [dark] UNUSED
+	// void CloneHIR(CodeList &code, IRCodeGen &codegen);
 
 	void GenInitCode(void);
 
 	void GenRegexEntries(void);
+	
+	void GenStringMatchingEntries(void);
 
 	void DumpPFLTreeDotFormat(PFLExpression *expr, ostream &stream);
 
-	void VisitFilterExpression(PFLExpression *expr, SymbolLabel *trueLabel, SymbolLabel *falseLabel);
+	void GenFSACode(EncapFSA *fsa, SymbolLabel *trueLabel, SymbolLabel *falseLabel, bool fieldExtraction);
 
-	void VisitFilterBinExpr(PFLBinaryExpression *expr, SymbolLabel *trueLabel, SymbolLabel *falseLabel);
+	EncapFSA *VisitFilterExpression(PFLExpression *expr, bool fieldExtraction, NodeList_t toExtract);
 
-	void VisitFilterUnExpr(PFLUnaryExpression *expr, SymbolLabel *trueLabel, SymbolLabel *falseLabel);
+	EncapFSA *VisitFilterBinExpr(PFLBinaryExpression *expr, bool fieldExtraction, NodeList_t toExtract);
 
-	void GenFieldExtract(NodeList_t &protocols, SymbolLabel *trueLabel, SymbolLabel *falseLabel);
+	EncapFSA *VisitFilterUnExpr(PFLUnaryExpression *expr, bool fieldExtraction, NodeList_t toExtract);
 
-	void VisitFilterTermExpr(PFLTermExpression *expr, SymbolLabel *trueLabel, SymbolLabel *falseLabel);
+	EncapFSA *GenFieldExtract(NodeList_t &protocols, SymbolLabel *trueLabel, SymbolLabel *falseLabel, EncapFSA *fsa);
 
-	void ParseExtractField(FieldsList_t *fldList);
+	EncapFSA *VisitFilterTermExpr(PFLTermExpression *expr);
+	
+	EncapFSA *VisitNullExpr();
+	
+	void ReorderStates(list<EncapFSA::State*> *stateList);
+	
+	void GenHeaderIndexingCode(EncapFSA *fsa);
+	
+	void GenHeaderTunneledCode(EncapFSA *fsa);
+	
+	EncapFSA *VisitFilterRegExpr(PFLRegExpExpression *expr, bool fieldExtraction, NodeList_t toExtract);
 
-	void VisitAction(PFLAction *action);
+        void ParseExtractField(FieldsList_t *fldList);
 
-	void SetupCompilerConsts(CompilerConsts &compilerConsts, uint16 linkLayer);
+        void VisitAction(PFLAction *action);
+
+	void SetupCompilerConsts(CompilerConsts &NodecompilerConsts, uint16 linkLayer);
 
 	PFLStatement *ParseFilter(string filter);
 
@@ -123,14 +208,6 @@ private:
 		m_DefinedReferredFieldsInFilter=0;
 
 		VisitCode(code);
-	}
-
-	void GetReferredFieldsInBoolExpr(Node *expr)
-	{
-		m_ReferredFieldsInFilter.clear();
-		m_ParsingFilter= true;
-		VisitBoolExpression(expr);
-		m_ParsingFilter= false;
 	}
 
 	void GetReferredFieldsExtractField(SymbolProto *proto)
@@ -187,8 +264,8 @@ private:
 
 	void VisitLoop(StmtLoop *stmt)
 	{
-		VisitTree(stmt->Forest);
-		VisitTree(stmt->InitVal);
+		VisitTree(static_cast<HIRNode*>(stmt->Forest));
+		VisitTree(static_cast<HIRNode*>(stmt->InitVal));
 
 		//loop body
 		VisitCode(stmt->Code->Code);
@@ -196,26 +273,27 @@ private:
 		//<inc_statement>
 		VisitStatement(stmt->IncStmt);
 
-		VisitBoolExpression(stmt->TermCond);
+		VisitBoolExpression(static_cast<HIRNode*>(stmt->TermCond));
 	}
 
 	void VisitWhileDo(StmtWhile *stmt)
 	{
 		VisitCode(stmt->Code->Code);
 
-		VisitBoolExpression(stmt->Forest);
+
+		VisitBoolExpression(static_cast<HIRNode*>(stmt->Forest));
 	}
 
 	void VisitDoWhile(StmtWhile *stmt)
 	{
 		VisitCode(stmt->Code->Code);
 
-		VisitBoolExpression(stmt->Forest);
+		VisitBoolExpression(static_cast<HIRNode*>(stmt->Forest));
 	}
 
 	void VisitIf(StmtIf *stmt)
 	{
-		Node *expr = stmt->Forest;
+		HIRNode *expr = static_cast<HIRNode*>(stmt->Forest);
 
 		VisitBoolExpression(expr);
 
@@ -233,12 +311,12 @@ private:
 
 	void VisitJump(StmtJump *stmt)
 	{
-		VisitBoolExpression(stmt->Forest);
+		VisitBoolExpression(static_cast<HIRNode*>(stmt->Forest));
 	}
 
 	void VisitSwitch(StmtSwitch *stmt)
 	{
-		VisitTree(stmt->Forest);
+		VisitTree(static_cast<HIRNode*>(stmt->Forest));
 
 		VisitCases(stmt->Cases);
 		if (stmt->Default != NULL)
@@ -266,7 +344,7 @@ private:
 
 		if (!IsDefault)
 		{
-			VisitTree(caseSt->Forest);
+			VisitTree(static_cast<HIRNode*>(caseSt->Forest));
 		}
 
 		VisitCode(caseSt->Code->Code);
@@ -275,7 +353,9 @@ private:
 
 	void VisitGen(StmtGen *stmt)
 	{
-		Node *tree = stmt->Forest;
+		nbASSERT(stmt != NULL, "stmt cannot be NULL");
+		nbASSERT(stmt->Forest != NULL, "Forest cannot be NULL");
+		HIRNode *tree = static_cast<HIRNode*>(stmt->Forest);
 
 		switch (tree->Op)
 		{
@@ -323,18 +403,18 @@ private:
 		}
 	}
 
-	void VisitAssignInt(Node *node)
+	void VisitAssignInt(HIRNode *node)
 	{
 		node->GetLeftChild();
 		// Node *leftChild = node->GetLeftChild();
-		Node *rightChild = node->GetRightChild();
+		HIRNode *rightChild = node->GetRightChild();
 
 		VisitTree(rightChild);
 	}
 
-	void VisitAssignStr(Node *node)
+	void VisitAssignStr(HIRNode *node)
 	{
-		Node *leftChild = node->GetLeftChild();
+		HIRNode *leftChild = node->GetLeftChild();
 		node->GetRightChild();
 		// Node *rightChild = node->GetRightChild();
 		SymbolVariable *varSym = (SymbolVariable*)leftChild->Sym;
@@ -380,7 +460,7 @@ private:
 					}
 				default:
 					break;
-				}
+					}
 			}
 		default:
 			break;
@@ -388,31 +468,31 @@ private:
 	}
 
 
-	void VisitFieldDef(Node *node)
+	void VisitFieldDef(HIRNode *node)
 	{
-		Node *leftChild = node->GetLeftChild();
+		HIRNode *leftChild = node->GetLeftChild();
 		SymbolField *fieldSym = (SymbolField*)leftChild->Sym;
 
 		SymbolField *sym=this->m_GlobalSymbols.LookUpProtoField(this->m_Protocol, fieldSym);
 
 		switch(fieldSym->FieldType)
 		{
-		case PDL_FIELD_FIXED:
-			break;
-		case PDL_FIELD_VARLEN:
+			case PDL_FIELD_FIXED:
+				break;
+			case PDL_FIELD_VARLEN:
 			{
 				SymbolFieldVarLen *varlenFieldSym = (SymbolFieldVarLen*)sym;
 
-				VisitTree(varlenFieldSym->LenExpr);
+				VisitTree(static_cast<HIRNode*>(varlenFieldSym->LenExpr));
 			}break;
 
 		case PDL_FIELD_TOKEND:
 			{
 				SymbolFieldTokEnd *tokendFieldSym = (SymbolFieldTokEnd*)sym;
 				if(tokendFieldSym->EndOff!=NULL)
-					VisitTree(tokendFieldSym->EndOff);
+					VisitTree(static_cast<HIRNode*>(tokendFieldSym->EndOff));
 				if(tokendFieldSym->EndDiscard!=NULL)
-					VisitTree(tokendFieldSym->EndDiscard);
+					VisitTree(static_cast<HIRNode*>(tokendFieldSym->EndDiscard));
 			}break;
 
 
@@ -421,11 +501,11 @@ private:
 				SymbolFieldTokWrap *tokwrapFieldSym = (SymbolFieldTokWrap*)sym;
 
 				if(tokwrapFieldSym->BeginOff!=NULL)
-					VisitTree(tokwrapFieldSym->BeginOff);
+					VisitTree(static_cast<HIRNode*>(tokwrapFieldSym->BeginOff));
 				if(tokwrapFieldSym->EndOff!=NULL)
-					VisitTree(tokwrapFieldSym->EndOff);
+					VisitTree(static_cast<HIRNode*>(tokwrapFieldSym->EndOff));
 				if(tokwrapFieldSym->EndDiscard!=NULL)
-					VisitTree(tokwrapFieldSym->EndDiscard);
+					VisitTree(static_cast<HIRNode*>(tokwrapFieldSym->EndDiscard));
 
 			}break;
 
@@ -472,7 +552,7 @@ private:
 			m_ReferredFieldsInFilter.push_front(stmt->Field);
 	}
 
-	void VisitBoolExpression(Node *expr)
+	void VisitBoolExpression(HIRNode *expr)
 	{
 		switch(expr->Op)
 		{
@@ -492,8 +572,8 @@ private:
 		case IR_NEI:
 		case IR_EQS:
 		case IR_NES:
-		case IR_GTS:
-		case IR_LTS:
+		//case IR_GTS: [icerrato] these operation are not allowed in the NetPDL language
+		//case IR_LTS:
 			VisitTree(expr->GetLeftChild());
 			VisitTree(expr->GetRightChild());
 			break;
@@ -507,7 +587,7 @@ private:
 		}
 	}
 
-	void VisitTree(Node *node)
+	void VisitTree(HIRNode *node)
 	{
 		switch(node->Op)
 		{
@@ -535,7 +615,7 @@ private:
 		}
 	}
 
-	void VisitCInt(Node *node)
+	void VisitCInt(HIRNode *node)
 	{
 		node->GetLeftChild();
 		// Node *child = node->GetLeftChild();
@@ -563,8 +643,6 @@ private:
 	}
 #endif
 
-
-
 public:
 	/*!
 	\brief	Object constructor
@@ -576,8 +654,9 @@ public:
 	\return nothing
 	*/
 
+
 	NetPFLFrontEnd(_nbNetPDLDatabase &protoDB, nbNetPDLLinkLayer_t LinkLayer,
-		const unsigned int DebugLevel=0, const char *dumpHIRCodeFilename= NULL, const char *dumpLIRNoOptGraphFilename=NULL, const char *dumpProtoGraphFilename=NULL);
+		const unsigned int DebugLevel=0, const char *dumpHIRCodeFilename= NULL, const char *dumpMIRNoOptGraphFilename=NULL, const char *dumpProtoGraphFilename=NULL);
 
 	/*!
 	\brief	Object destructor
@@ -585,10 +664,13 @@ public:
 	~NetPFLFrontEnd();
 
     bool CheckFilter(string filter);
+    
+    int CreateAutomatonFromFilter(string filter);
 
-	bool CompileFilter(string filter, bool optimizationCycles = true);
+	int CompileFilter(string filter, bool optimizationCycles = true);//it can return nbSUCCESS, nbFAILURE or nbWARNING
 
 	ErrorRecorder &GetErrRecorder(void)
+
 	{
 		return m_ErrorRecorder;
 	}
@@ -597,8 +679,15 @@ public:
 	{
 		return NetIL_FilterCode;
 	}
-
-
+	
+	void PrintFinalAutomaton(const char *dotfilename)
+	{
+	  if(m_fsa==NULL)
+	  	return;		
+	  ofstream outfile(dotfilename);
+	  sftDotWriter<EncapFSA> fsaWriter(outfile);
+	  fsaWriter.DumpFSA(m_fsa);			
+	}
 
 	void DumpCFG(ostream &stream, bool graphOnly, bool netIL);
 
@@ -611,3 +700,40 @@ public:
 
 };
 
+
+/*
+ * Class used to store various information about the FSA states
+ * of which we have to generate code.
+ */
+class StateCodeInfo
+{
+ private:
+  EncapFSA::State *s_ptr;
+  SymbolLabel *label_complete; // label emitted at the beginning of the protocol
+  SymbolLabel *label_fast; /* label emitted after the 'before' and 'format' sections,*/
+                          /*  * but before 'encapsulation' and ExtendedTransition handling
+                            */
+  //SymbolLabel *label_light;
+  string name; // use it when you want to refer to this state as a string
+
+ public:
+  // constructor
+ StateCodeInfo(EncapFSA::State *state_pointer)
+   :s_ptr(state_pointer)
+  {
+    stringstream ss;
+    ss << "state_" << state_pointer->GetID();
+    name = ss.str();
+  }
+
+ void setLabels(SymbolLabel *label_complete, SymbolLabel *label_fast/*, SymbolLabel *label_light*/){
+   this->label_complete = label_complete;
+   this->label_fast = label_fast;
+ //  this->label_light = label_light;
+
+ }
+ SymbolLabel* getLabelComplete(){ return label_complete; }
+ SymbolLabel* getLabelFast(){ return label_fast; }
+// SymbolLabel* getLabelLight(){ return label_light; }
+ string toString(){ return name; }
+};

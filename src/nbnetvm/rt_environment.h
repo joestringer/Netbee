@@ -329,7 +329,7 @@ int32_t nvmOutCallback(nvmExchangeBuffer **exbuf, uint32_t dummy, nvmHandlerStat
 /*!
  	\brief Function for printing messages at the desired verbosity level
  */
-void VerbOut(nvmRuntimeEnvironment *RTObj, uint32_t level, char *format, ...);
+void VerbOut(nvmRuntimeEnvironment *RTObj, uint32_t level, const char *format, ...);
 
 
 uint32_t nvmHash(uint8_t *data, uint8_t len);

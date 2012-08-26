@@ -29,7 +29,6 @@
 #define NUM_EX_BUF 10
 #define PKT_SIZE 1500
 #define INFO_SIZE 2048
-#define RUNTIME_VERB 2
 
 
 #define TARGETS_NUM ((sizeof(targets) / sizeof(nvmBackendDescriptor)) - 1)
@@ -277,11 +276,10 @@ int32_t nvmCreateConnectTable(tmp_nvmPEState *PEState,nvmRuntimeEnvironment *RTO
 
 int32_t nvmFindHandlerState(nvmHandlerState *HandlerState, tmp_nvmPEState *PEState, char *errbuf)
 {
-	uint32_t i=0;
-	//nvmPEHandler *handler;
-	nvmNetPE *ourPE, *ctdPE;
-	uint32_t ctdport;
-	nvmPEPort portTab;
+uint32_t i=0;
+nvmNetPE *ourPE, *ctdPE;
+uint32_t ctdport;
+nvmPEPort portTab;
 
 	//it takes only the HandlerState that refers to the PEState
 	if(HandlerState->PEState == PEState)
@@ -290,26 +288,14 @@ int32_t nvmFindHandlerState(nvmHandlerState *HandlerState, tmp_nvmPEState *PESta
 		{
 			ourPE=HandlerState->Handler->OwnerPE;
 			portTab=ourPE->PortTable[i];
-		/* control for debug
-			if (!PORT_IS_CONN_PE(portTab.PortFlags))
+		
+			if (PORT_IS_CONN_PE(portTab.PortFlags))
 			{
-				printf("HANDLERSTATE: %s :La porta %d non è connessa a nessun pe\n",HandlerState->Handler->Name,i);
-					if (PORT_IS_DIR_PUSH(portTab.PortFlags))
-					{
-						printf("PORT: %d  è una porta (PUSH IN) che riceve dati quindi non è collegata a nessun handler esterno al PE\n",i);
-					}
-					if (PORT_IS_DIR_PULL(portTab.PortFlags))
-					{
-						printf("è una pull in ingresso devo connetterlo alla polling\n");
-					}
-			}
-			else*/ if (PORT_IS_CONN_PE(portTab.PortFlags))
-			{
-				//if(PORT_IS_EXPORTER(portTab.PortFlags))
-				//	printf("DIR IN La porta %d è connessa con la porta %d di un altro pe\n",i, ourPE->PortTable[i].CtdPort );
 				if (PORT_IS_COLLECTOR(portTab.PortFlags))
 				{
-					VERB2(RUNTIME_VERB, "DIR OUT The door %d is connect whith door %d of another pe\n",i,ourPE->PortTable[i].CtdPort );
+#ifdef ENABLE_NETVM_LOGGING
+					logdata(LOG_RUNTIME_CREATE_PEGRAPH, "DIR OUT Port %d is connected with port %d of another NetPE", i, ourPE->PortTable[i].CtdPort);
+#endif
 					ctdPE=portTab.CtdPE;
 					ctdport=ourPE->PortTable[i].CtdPort;
 					PEState->ConnTable[i].CtdHandler=ctdPE->PortTable[ctdport].Handler->HandlerState;
@@ -467,7 +453,9 @@ int32_t nvmBindAppInterf2Socket(nvmAppInterface *AppInterface,nvmSocket *Socket)
 	{
 		AppInterface->CtdHandler = Socket->CtdPE->PortTable[port].Handler->HandlerState;
 		AppInterface->CtdPort = port;
-		VERB0(RUNTIME_VERB, "executed bind push in\n");
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_RUNTIME_CREATE_PEGRAPH, "Executed bind push in");
+#endif
 		return nvmSUCCESS;
 	}
 
@@ -496,9 +484,12 @@ int32_t nvmBindAppInterf2Socket(nvmAppInterface *AppInterface,nvmSocket *Socket)
 
 		AppInterface->CtdPort = port;
 		PORT_SET_CONN_PE(Socket->CtdPE->PortTable[port].PortFlags);
-		VERB0(RUNTIME_VERB, "executed bind push out\n");
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_RUNTIME_CREATE_PEGRAPH, "Executed bind push out");
+#endif
 		return nvmSUCCESS;
 	}
+
 
 	//PULL IN
 	if( PORT_IS_EXPORTER(flags) && PORT_IS_DIR_PULL(flags) && AppInterface->CtdHandlerType == HANDLER_TYPE_POLLING )
@@ -506,9 +497,10 @@ int32_t nvmBindAppInterf2Socket(nvmAppInterface *AppInterface,nvmSocket *Socket)
 		AppInterface->CtdPort = port;
 		Socket->CtdPE->PEState->ConnTable[port].CtdPolling = AppInterface->Handler.CtdPolling;
 		Socket->CtdPE->PEState->ConnTable[port].CtdHandlerType = HANDLER_TYPE_POLLING;
-		VERB0(RUNTIME_VERB, "executed bind pull in");
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_RUNTIME_CREATE_PEGRAPH, "Executed bind pull in");
+#endif
 		return nvmSUCCESS;
-
 	}
 
 	//PULL OUT
@@ -516,7 +508,9 @@ int32_t nvmBindAppInterf2Socket(nvmAppInterface *AppInterface,nvmSocket *Socket)
 	{
 		AppInterface->CtdHandler = Socket->CtdPE->PortTable[port].Handler->HandlerState;
 		AppInterface->CtdPort = port;
-		VERB0(RUNTIME_VERB, "executed bind pull out");
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_RUNTIME_CREATE_PEGRAPH, "Executed bind pull out");
+#endif
 		return nvmSUCCESS;
 	}
 
@@ -745,9 +739,9 @@ int i;
 #ifdef CODE_PROFILING
 		}
 		End= nbProfilerGetTime();
+		//printf("100 esecuzioni ci mettono %llu\n",End-Start);
 		ProfilerStoreSample(Start, End);
 	}
-
 	ProfilerProcessData();
 	printf("\n======================= Code Execution Time profiling ======================\n");
 
@@ -879,8 +873,10 @@ int32_t nvmNetStart(
 
 	if (UseJit)
 	{
-		//jit
-		VERB0(RUNTIME_VERB, "Using the jit\n");
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_RUNTIME_CREATE_PEGRAPH, "Using the jit");
+#endif
+
 #ifdef _DEBUG
 		VerbOut(RTObj, 0, "JIT Compiling the NetVM Application\n");
 #endif
@@ -1167,7 +1163,7 @@ void nvmDestroyRTEnvFromInt(nvmAppInterface *interface)
 #endif
 }
 
-void VerbOut(nvmRuntimeEnvironment *RTObj, uint32_t level, char *format, ...)
+void VerbOut(nvmRuntimeEnvironment *RTObj, uint32_t level, const char *format, ...)
 {
 	va_list args;
 	va_start(args, format);

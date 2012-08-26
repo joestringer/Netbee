@@ -31,6 +31,7 @@ string    "\""[^\"]*"\""
 #define fileno _fileno
 #endif
 
+#define YY_NO_INPUT
 
 #ifdef FLEX_SCANNER
 #define YY_NO_UNPUT
@@ -95,14 +96,14 @@ default			return DEFAULTCASE;
 					nvmparser_lval.number = n;
 					return NUMBER;
 				}
-{dotquad}		{uint32_t n, t, i; char dotquad[16], *c; size_t len;
+{dotquad}		{uint32_t n, t, i; char dotquad[16], *c; // size_t len;
 					/* 12345678901234567890
 					   255.255.255.255
 					   max length: 15
 					 */
 
 					/* printf("matched text: '%s'\n", yytext); */
-					len = strlen(yytext);
+					// len = strlen(yytext);
 					n = 0;
 					strncpy(dotquad, yytext, sizeof(dotquad));
 					dotquad[sizeof(dotquad)-1] = '\0';
@@ -129,14 +130,14 @@ default			return DEFAULTCASE;
 					return NUMBER;
 				}
 
-{colquad}		{uint32_t n, t, i; char colquad[12], *c; size_t len;
+{colquad}		{uint32_t n, t, i; char colquad[12], *c; // size_t len;
 					/* 12345678901234567890
 					   00:00:00:00
 					   max length: 11
 					 */
 
 					/* printf("matched text: '%s'\n", yytext); */
-					len = strlen(yytext);
+					// len = strlen(yytext);
 					n = 0;
 					strncpy(colquad, yytext, sizeof(colquad));
 					colquad[sizeof(colquad)-1] = '\0';

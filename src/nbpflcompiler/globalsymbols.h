@@ -78,17 +78,23 @@ private:
 	template <class T>
 	class MemPool
 	{
-		list<T*> Objects;
+
+	public:
+		typedef T* type_ptr;
+		typedef T type;
+	private:
+		std::list<type_ptr> Objects;
 	public:
 		MemPool(){}
 		~MemPool()
 		{
-			typename list<T*>::iterator i = Objects.begin();
+			typename list<type_ptr>::iterator i = Objects.begin();
+
 			for (; i != Objects.end(); i++)
 				delete (*i);
 		}
 
-		void NewObj(T* obj)
+		void NewObj(type_ptr obj)
 		{
 			Objects.push_back(obj);
 		}
@@ -96,7 +102,7 @@ private:
 
 	struct ProtocolInfo
 	{
-		StrSymbolTable<SymbolField *>			FieldSymbols;		//!<2nd level symbol table for references to protocol fields	
+		StrSymbolTable<SymbolField *>			FieldSymbols;		//!<2nd level symbol table for references to protocol fields
 		SymbolField				**m_FieldList;
 		uint32					m_NumField;
 		SymbolLabel				*StartLbl;
@@ -105,7 +111,7 @@ private:
 		CodeList 				StoreFldInfo;		// codelist for the ExtractField Action
 
 		ProtocolInfo()
-			:m_FieldList(0), m_NumField(0), StartLbl(0), ProtoOffsVar(0){}
+                :m_FieldList(0),m_NumField(0),StartLbl(0), ProtoOffsVar(0){}
 
 		~ProtocolInfo();
 
@@ -115,21 +121,23 @@ private:
 		}
 	};
 
-	GlobalInfo				&m_GlobalInfo;		//!< Reference to the \ref GlobalInfo structure holding shared information
+	GlobalInfo			&m_GlobalInfo;		//!< Reference to the \ref GlobalInfo structure holding shared information
 	RTVarSymbolTable_t		m_RuntimeVars;		//!< NetPDL runtime variables symbol table
-	StrConstSymbolTable_t	m_StrConsts;		//!< NetPDL string constants
-	IntConstSymbolTable_t	m_IntConsts;		//!< Integer Constants
+	StrConstSymbolTable_t		m_StrConsts;		//!< NetPDL string constants
+	IntConstSymbolTable_t		m_IntConsts;		//!< Integer Constants
 	LookupTablesTable_t		m_LookupTables;		//!< Lookup tables
-	RegExList_t				m_RegExEntries;		//!< RegEx entries
-	DataItemList_t			m_DataItems;				//!< Data items
-	LabelSymbolTable_t		m_Labels;			//!< Labels
+	RegExList_t			m_RegExEntries;		//!< RegEx entries
+	RegExList_t 			m_StringMatchingEntries;//!< StringMatching entries
+	DataItemList_t			m_DataItems;		//!< Data items
+	LabelSymbolTable_t		m_Labels;		//!< Labels
 	TempSymbolTable_t		m_Temporaries;		//!< Global compiler-generated temporaries
-	LabelGen				m_LabelGen;			//!< Label number generator
-	TempGen					m_TempGen;			//!< Compiler generated temporaries generator
-	uint32					m_ConstOffs;		//!< Offset of the next string constant to be allocated in the constants pool
+	LabelGen			m_LabelGen;		//!< Label number generator
+	TempGen				m_TempGen;		//!< Compiler generated temporaries generator
+	uint32				m_ConstOffs;		//!< Offset of the next string constant to be allocated in the constants pool
 	ProtocolInfo			*m_ProtocolInfo;
-	uint32					m_NumProto;
+	uint32				m_NumProto;
 	MemPool<CodeList>		m_MemPool;
+
 
 
 public:
@@ -162,7 +170,9 @@ public:
 	void StoreLookupTable(const string name, SymbolLookupTable *lookupTable);
 
 	void StoreRegExEntry(SymbolRegEx *regEx);
+	void StoreStringMatchingEntry(SymbolRegEx *regEx);
 	int GetRegExEntriesCount();
+	int GetStringMatchingEntriesCount();
 
 	SymbolProto *LookUpProto(const string protoName);
 	SymbolProto *GetProto(int index);
@@ -228,6 +238,11 @@ public:
 	RegExList_t GetRegExList()
 	{
 		return this->m_RegExEntries;
+	}
+	
+	RegExList_t GetStringMatchingList()
+	{
+		return this->m_StringMatchingEntries;
 	}
 
 	void StoreDataItem(SymbolDataItem *item);

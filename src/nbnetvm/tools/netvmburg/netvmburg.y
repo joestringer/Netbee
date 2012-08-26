@@ -117,7 +117,7 @@ static char input[2048];
 static char *Next = input;
 
 void 
-yyerror (char *fmt, ...)
+yyerror (const char *fmt, ...)
 {
   va_list ap;
 

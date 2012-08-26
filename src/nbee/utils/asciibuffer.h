@@ -26,12 +26,12 @@ public:
 	void ClearBuffer(bool ResizeAllowed);
 
 	char *TranscodeAndStore(wchar_t *SourceString);
-	char *Store(char *SourceString);
+	char *Store(const char *SourceString);
 	char *StoreLong(long Number);
 
-	int Append(char *SourceString);
-	int Append(char *SourceString, int NumberofChars);
-	int AppendFormatted(char *Format, ...);
+	int Append(const char *SourceString);
+	int Append(const char *SourceString, int NumberofChars);
+	int AppendFormatted(const char *Format, ...);
 
 	void SetBufferCurrentSize(unsigned long BufferCurrentIndex);
 

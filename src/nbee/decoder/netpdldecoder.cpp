@@ -118,7 +118,7 @@ int CNetPDLDecoder::Initialize()
 		errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), 
 			"Error allocating the packet decoder: the PDML generation (either simple or with visualization " \
 			"primitives) has to be turned on in order to be able to allocate the Packet Decoder.");
-		return NULL;
+		return nbFAILURE;
 	}
 
 	// Initializes the class that manages PDML files. This class must always be present.

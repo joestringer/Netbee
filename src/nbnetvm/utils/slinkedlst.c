@@ -40,7 +40,9 @@ SLinkedList * New_SingLinkedList(uint32_t sorted)
 	list->Tail = NULL;
 	list->NumElems = 0;
 	list->Sorted = sorted;
-	VERB2(JIT_LISTS_DEBUG_LVL, "New Singly Linked Lst 0x%p, Sorted: %u\n",list, list->Sorted);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "New Singly Linked Lst 0x%p, Sorted: %u",list, list->Sorted);
+#endif
 	return list;
 }
 
@@ -50,7 +52,7 @@ SLinkedList * New_SingLinkedList(uint32_t sorted)
 
 void Free_SingLinkedList(SLinkedList * list, void (*freeItem)(void*))
 {
-	SLLstElement * currItem, *nextItem;
+SLLstElement * currItem, *nextItem;
 
 	if (list == NULL)
 		return;
@@ -58,7 +60,8 @@ void Free_SingLinkedList(SLinkedList * list, void (*freeItem)(void*))
 	currItem = list->Head;
 	nextItem = currItem;
 
-	while (nextItem != NULL){
+	while (nextItem != NULL)
+	{
 		nextItem = currItem->Next;
 		if (freeItem != NULL)			//we may not want to free the linked items
 			freeItem(currItem->Item);
@@ -66,7 +69,9 @@ void Free_SingLinkedList(SLinkedList * list, void (*freeItem)(void*))
 		currItem = nextItem;
 	}
 
-	VERB2(JIT_LISTS_DEBUG_LVL, "Freed Singly Linked Lst 0x%p, Num Elements: %u\n",list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Freed Singly Linked Lst 0x%p, Num Elements: %u",list, list->NumElems);
+#endif
 
 	free(list);
 }
@@ -77,14 +82,14 @@ uint32_t SLLst_Is_Empty(SLinkedList * list)
 {
 	if (list == NULL)
 		return TRUE;
-
-	else if (list->Head == NULL || list->NumElems == 0 || list->Tail == NULL){
-		NETVM_ASSERT(list->Head == NULL && list->Tail == NULL && list->NumElems == 0, __FUNCTION__ " the list may be empty, but has wrong member values!");
-		return TRUE;
-	}
-
-	else 
-		return FALSE;
+	else
+		if (list->Head == NULL || list->NumElems == 0 || list->Tail == NULL)
+		{
+			NETVM_ASSERT(list->Head == NULL && list->Tail == NULL && list->NumElems == 0, __FUNCTION__ " the list may be empty, but has wrong member values!");
+			return TRUE;
+		}
+		else 
+			return FALSE;
 }
 
 SLLstElement * SLLst_Add_Tail(SLinkedList * list)
@@ -112,7 +117,9 @@ SLLstElement * SLLst_Add_Tail(SLinkedList * list)
 
 	list->NumElems++;
 
-	VERB2(JIT_LISTS_DEBUG_LVL, "Added an element to tail of Singly Linked Lst 0x%p, Num Elements: %u\n",list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Added an element to tail of Single Linked Lst 0x%p, Num Elements: %u",list, list->NumElems);
+#endif
 
 	return listItem;
 }
@@ -144,7 +151,9 @@ SLLstElement * SLLst_Add_Front(SLinkedList * list)
 
 	list->NumElems++;
 
-	VERB2(JIT_LISTS_DEBUG_LVL, "Added an element to front of Singly Linked Lst 0x%p, Num Elements: %u\n",list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Added an element in front of Single Linked Lst 0x%p, Num Elements: %u",list, list->NumElems);
+#endif
 
 	return listItem;
 
@@ -174,22 +183,24 @@ SLLstElement * SLLst_Ins_After(SLinkedList * list, SLLstElement * listItem)
 
 	list->NumElems++;
 
-	VERB3(JIT_LISTS_DEBUG_LVL, "Added an element after element 0x%p of Singly Linked Lst 0x%p, Num Elements: %u\n", listItem, list, list->NumElems);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Added an element after element 0x%p of Singly Linked Lst 0x%p, Num Elements: %u", listItem, list, list->NumElems);
+#endif
 
 	return newItem;
-
 }
 
 
 
 SLLstElement * SLLst_Del_Item(SLinkedList * list, SLLstElement * listItem)
 {
-	SLLstElement * prevItem;
+SLLstElement * prevItem;
 
 	if (list == NULL || listItem == NULL)
 		return NULL;
 
-	if (SLLst_Is_Empty(list)){	// empty list
+	if (SLLst_Is_Empty(list))
+	{	// empty list
 		NETVM_ASSERT(0 == 1, __FUNCTION__ " trying to delete an element from an empty list");
 		return NULL;
 	}
@@ -210,11 +221,12 @@ SLLstElement * SLLst_Del_Item(SLinkedList * list, SLLstElement * listItem)
 	list->NumElems--;
 
 	NETVM_ASSERT(((int32_t)list->NumElems) >= 0, __FUNCTION__ " number of elements in the list is < 0!");
-	VERB3(JIT_LISTS_DEBUG_LVL, "Deleted element 0x%p from Singly linked list %p, Num elements now: %u, Head: 0x%p, Tail: 0x%p\n", listItem, list, list->NumElems);
 
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, "Deleted element 0x%p from Singly linked list %p, Num elements now: %u, Head: 0x%p, Tail: 0x%p", listItem, list, list->NumElems);
+#endif
 
 	return prevItem;
-
 }
 
 
@@ -281,13 +293,14 @@ int32_t SLLst_Ins_Item_After(SLinkedList * list, SLLstElement * listItem, void* 
 
 SLLstElement * SLLst_Find_Item_Sorted(SLinkedList * list, void *item, int32_t (*Cmp_Item)(void*, void*))
 {
-	SLLstElement * currItem;
+SLLstElement * currItem;
 
 	if (list == NULL || Cmp_Item == NULL || item == NULL)
 		return NULL;
 
-	
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
 	NETVM_ASSERT(list->Sorted, __FUNCTION__ " cannot be used with a non-sorted list");
 
@@ -312,13 +325,15 @@ SLLstElement * SLLst_Find_Item_Sorted(SLinkedList * list, void *item, int32_t (*
 
 SLLstElement * SLLst_Find_Item(SLinkedList * list, void *item, int32_t (*Cmp_Item)(void*, void*))
 {
-	SLLstElement * currItem;
+SLLstElement * currItem;
 
 	if (list == NULL || Cmp_Item == NULL)
 		return NULL;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
-	
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
+
 	if (list->Sorted)
 		return SLLst_Find_Item_Sorted(list, item, Cmp_Item);
 
@@ -341,12 +356,14 @@ SLLstElement * SLLst_Find_Item(SLinkedList * list, void *item, int32_t (*Cmp_Ite
 
 SLLstElement * SLLst_Insert_Item_Sorted(SLinkedList * list, void *item, uint32_t duplicates, int32_t (*Cmp_Item)(void*, void*))
 {
-	SLLstElement * prevItem, *currItem, *newItem;
+SLLstElement * prevItem, *currItem, *newItem;
 	
 	if (list == NULL || Cmp_Item == NULL || item == NULL)
 		return NULL;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
 	NETVM_ASSERT(list->Sorted, __FUNCTION__ " cannot be used with a non-sorted list");
 
@@ -400,16 +417,22 @@ SLLstElement * SLLst_Insert_Item_Sorted(SLinkedList * list, void *item, uint32_t
 
 int32_t SLLst_Iterate_1Arg(SLinkedList * list, int32_t (*funct)(void *, void*), void *arg)
 {
-	SLLstElement * listItem, *next;
+SLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
@@ -432,16 +455,22 @@ int32_t SLLst_Iterate_1Arg(SLinkedList * list, int32_t (*funct)(void *, void*), 
 
 int32_t SLLst_Iterate_2Args(SLinkedList * list, int32_t (*funct)(void *, void*, void*), void *arg1, void *arg2)
 {
-	SLLstElement * listItem, *next;
+SLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
@@ -463,25 +492,33 @@ int32_t SLLst_Iterate_2Args(SLinkedList * list, int32_t (*funct)(void *, void*, 
 
 int32_t SLLst_Iterate_3Args(SLinkedList * list, int32_t (*funct)(void *, void*, void*, void*), void *arg1, void *arg2, void *arg3)
 {
-	SLLstElement * listItem, *next;
+SLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
 
 	listItem = list->Head;
 
-	while (listItem != NULL){
+	while (listItem != NULL)
+	{
 		next = listItem->Next;
-		if(funct(listItem->Item, arg1, arg2, arg3) < 0){
+		if(funct(listItem->Item, arg1, arg2, arg3) < 0)
+		{
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: applying function on items\n");
 			return nvmJitFAILURE;
 		}
@@ -494,25 +531,33 @@ int32_t SLLst_Iterate_3Args(SLinkedList * list, int32_t (*funct)(void *, void*, 
 
 int32_t SLLst_Iterate_4Args(SLinkedList * list, int32_t (*funct)(void *, void*, void*, void*, void*), void *arg1, void *arg2, void *arg3, void *arg4)
 {
-	SLLstElement * listItem, *next;
+SLLstElement * listItem, *next;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (list == NULL){
-		VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning\n");
+	if (list == NULL)
+	{
+#ifdef ENABLE_NETVM_LOGGING
+		logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__ "Null List... returning");
+#endif
 		return nvmJitSUCCESS;
 	}
 
-	if (funct == NULL){
+	if (funct == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
 
 	listItem = list->Head;
 
-	while (listItem != NULL){
+	while (listItem != NULL)
+	{
 		next = listItem->Next;
-		if(funct(listItem->Item, arg1, arg2, arg3, arg4) < 0){
+		if(funct(listItem->Item, arg1, arg2, arg3, arg4) < 0)
+		{
 			errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: applying function on items\n");
 			return nvmJitFAILURE;
 		}
@@ -523,23 +568,24 @@ int32_t SLLst_Iterate_4Args(SLinkedList * list, int32_t (*funct)(void *, void*, 
 }
 
 
-
-
-
 int32_t SLLst_Copy(SLinkedList * dstList, SLinkedList * srcList)
 {
-	SLLstElement * cursSrc;
+SLLstElement * cursSrc;
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	if (dstList == NULL || srcList == NULL){
+	if (dstList == NULL || srcList == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null ptr arguments\n");
 		return nvmJitFAILURE;
 	}
 
 	cursSrc = srcList->Head;
 
-	while (cursSrc != NULL){
+	while (cursSrc != NULL)
+	{
 		if (SLLst_Add_Item_Tail(dstList, cursSrc->Item) < 0)
 			return nvmJitFAILURE;
 		cursSrc = cursSrc->Next;
@@ -552,18 +598,21 @@ int32_t SLLst_Copy(SLinkedList * dstList, SLinkedList * srcList)
 
 int32_t SLLst_Union_Set(SLinkedList * dstList, SLinkedList * srcList, int32_t (*Cmp_Item)(void*, void*))
 {
-	SLLstElement * cursDst, *cursSrc, *prevDst;
-	int32_t cmpResult;
+SLLstElement * cursDst, *cursSrc, *prevDst;
+int32_t cmpResult;
 
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_LISTS_DEBUG_LVL, __FUNCTION__);
+#endif
 
-	VERB0(JIT_LISTS_DEBUG_LVL, __FUNCTION__ "\n");
-
-	if (dstList == NULL || srcList == NULL){
+	if (dstList == NULL || srcList == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null ptr arguments\n");
 		return nvmJitFAILURE;
 	}
 
-	if (Cmp_Item == NULL){
+	if (Cmp_Item == NULL)
+	{
 		errorprintf(__FILE__, __FUNCTION__, __LINE__, " Error: null function ptr argument\n");
 		return nvmJitFAILURE;
 	}
@@ -574,35 +623,39 @@ int32_t SLLst_Union_Set(SLinkedList * dstList, SLinkedList * srcList, int32_t (*
 	if (!dstList->Sorted || !srcList->Sorted)
 		return nvmJitFAILURE;
 
-	
 	cursDst = dstList->Head;
 	cursSrc = srcList->Head;
 	prevDst = NULL;
 
-
-	while (cursDst != NULL && cursSrc != NULL){
+	while (cursDst != NULL && cursSrc != NULL)
+	{
 		cmpResult = Cmp_Item(cursDst->Item, cursSrc->Item);
 
-		if (cmpResult == 0){
+		if (cmpResult == 0)
+		{
 			cursSrc = cursSrc->Next;
 		}
-		else if (cmpResult > 0){
-			if (prevDst == NULL){
-				if (SLLst_Add_Item_Front(dstList, cursSrc->Item) < 0)
-					return nvmJitFAILURE;
+		else
+			if (cmpResult > 0)
+			{
+				if (prevDst == NULL)
+				{
+					if (SLLst_Add_Item_Front(dstList, cursSrc->Item) < 0)
+						return nvmJitFAILURE;
+				}
+				else{
+					if (SLLst_Ins_Item_After(dstList, prevDst, cursSrc->Item) < 0)
+						return nvmJitFAILURE;
+				}
+				cursSrc = cursSrc->Next;
 			}
-			else{
-				if (SLLst_Ins_Item_After(dstList, prevDst, cursSrc->Item) < 0)
-					return nvmJitFAILURE;
-			}
-			cursSrc = cursSrc->Next;
-		}
 
 		prevDst = cursDst;
 		cursDst = cursDst->Next;
 	}
 
-	while (cursSrc != NULL){
+	while (cursSrc != NULL)
+	{
 		if (SLLst_Add_Item_Tail(dstList, cursSrc->Item) < 0)
 			return nvmJitFAILURE;
 		cursSrc = cursSrc->Next;

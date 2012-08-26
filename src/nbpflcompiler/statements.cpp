@@ -9,7 +9,7 @@
 
 
 #include "statements.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include "tree.h"
 #include "errors.h"
 
@@ -248,103 +248,103 @@ StmtWhile *StmtWhile::Clone()
 	return new StmtWhile(this->Kind, Forest->Clone(), Code->Clone());
 }
 
-PFLMIRNode *StmtBase::translateToPFLMIRNode() {
-	return new StmtPFLMIRNode(Kind, Forest->translateToPFLMIRNode());
+MIRONode *StmtBase::translateToMIRONode() {
+	return new StmtMIRONode(Kind, Forest->translateToMIRONode());
 }
 
-PFLMIRNode *StmtComment::translateToPFLMIRNode() {
-	return new CommentPFLMIRNode(Comment);
+MIRONode *StmtComment::translateToMIRONode() {
+	return new CommentMIRONode(Comment);
 }
 
 
-PFLMIRNode *StmtLabel::translateToPFLMIRNode() {
-	LabelPFLMIRNode *new_node = new LabelPFLMIRNode();
+MIRONode *StmtLabel::translateToMIRONode() {
+	LabelMIRONode *new_node = new LabelMIRONode();
 	if(Forest)
-		new_node->setKid(Forest->translateToPFLMIRNode(), 0);
+		new_node->setKid(Forest->translateToMIRONode(), 0);
 	return new_node;
 }
 
 
-PFLMIRNode *StmtGen::translateToPFLMIRNode() {
-	GenPFLMIRNode *new_node = new GenPFLMIRNode(Forest->translateToPFLMIRNode());
+MIRONode *StmtGen::translateToMIRONode() {
+	GenMIRONode *new_node = new GenMIRONode(Forest->translateToMIRONode());
 	if(Forest != NULL)
-		new_node->setKid(Forest->translateToPFLMIRNode(), 0);
+		new_node->setKid(Forest->translateToMIRONode(), 0);
 	else
 		new_node->setKid(NULL, 0);
 
 	return new_node;
 }
 
-PFLMIRNode *StmtJump::translateToPFLMIRNode() {
-	JumpPFLMIRNode *new_node = new JumpPFLMIRNode(0, TrueBranch, FalseBranch);
+MIRONode *StmtJump::translateToMIRONode() {
+	JumpMIRONode *new_node = new JumpMIRONode(0, TrueBranch, FalseBranch);
 	new_node->setOpcode(this->Opcode);
 	if(Forest)
-		new_node->setKid(Forest->translateToPFLMIRNode(), 0);
+		new_node->setKid(Forest->translateToMIRONode(), 0);
 	return new_node;
 }
 
-PFLMIRNode *StmtJumpField::translateToPFLMIRNode() {
-	JumpFieldPFLMIRNode *new_node = new JumpFieldPFLMIRNode(0, TrueBranch, FalseBranch);
+MIRONode *StmtJumpField::translateToMIRONode() {
+	JumpFieldMIRONode *new_node = new JumpFieldMIRONode(0, TrueBranch, FalseBranch);
 	new_node->setOpcode(this->Opcode);
 	if(Forest)
-		new_node->setKid(Forest->translateToPFLMIRNode(), 0);
+		new_node->setKid(Forest->translateToMIRONode(), 0);
 	return new_node;
 }
 
-PFLMIRNode *StmtCase::translateToPFLMIRNode() {
-	CasePFLMIRNode *new_node = new CasePFLMIRNode(NULL, Target);
+MIRONode *StmtCase::translateToMIRONode() {
+	CaseMIRONode *new_node = new CaseMIRONode(NULL, Target);
 	if(Forest)
-		new_node->setKid(Forest->translateToPFLMIRNode(), 0);
+		new_node->setKid(Forest->translateToMIRONode(), 0);
 	return new_node;
 }
 
-PFLMIRNode *StmtSwitch::translateToPFLMIRNode() {
-	SwitchPFLMIRNode *new_node = new SwitchPFLMIRNode(Forest->translateToPFLMIRNode());
+MIRONode *StmtSwitch::translateToMIRONode() {
+	SwitchMIRONode *new_node = new SwitchMIRONode(Forest->translateToMIRONode());
 	new_node->setOpcode(this->Opcode);
 	new_node->SwExit = this->SwExit;
 	new_node->NumCases = this->NumCases;
 	if (this->Default!=NULL)
-		new_node->Default = dynamic_cast<CasePFLMIRNode*>(this->Default->translateToPFLMIRNode());
+		new_node->Default = dynamic_cast<CaseMIRONode*>(this->Default->translateToMIRONode());
 	StmtCase *iter = dynamic_cast<StmtCase*>(this->Cases->Front());
 	while(iter)
 	{
-		new_node->Cases.push_back(dynamic_cast<CasePFLMIRNode*>(iter->translateToPFLMIRNode()) );
+		new_node->Cases.push_back(dynamic_cast<CaseMIRONode*>(iter->translateToMIRONode()) );
 		iter = dynamic_cast<StmtCase*>(iter->Next);
 	}
 	return new_node;
 }
 
-PFLMIRNode *StmtBlock::translateToPFLMIRNode() {
+MIRONode *StmtBlock::translateToMIRONode() {
 	std::cout << "StmtBlock translator not implemeted" << std::endl;
 	assert(1 == 0);
 	return NULL;
 }
 
-PFLMIRNode *StmtIf::translateToPFLMIRNode() {
+MIRONode *StmtIf::translateToMIRONode() {
 	cerr << "StmtBlock translator not implemeted" << endl;
 	assert(1 == 0);
 	return NULL;
 }
 
-PFLMIRNode *StmtLoop::translateToPFLMIRNode() {
+MIRONode *StmtLoop::translateToMIRONode() {
 	cerr << "StmtBlock translator not implemeted" << endl;
 	assert(1 == 0);
 	return NULL;
 }
 
-PFLMIRNode *StmtWhile::translateToPFLMIRNode() {
+MIRONode *StmtWhile::translateToMIRONode() {
 	cerr << "StmtBlock translator not implemeted" << endl;
 	assert(1 == 0);
 	return NULL;
 }
 
-PFLMIRNode *StmtCtrl::translateToPFLMIRNode() {
+MIRONode *StmtCtrl::translateToMIRONode() {
 	cerr << "StmtBlock translator not implemeted" << endl;
 	assert(1 == 0);
 	return NULL;
 }
 
-PFLMIRNode *StmtFieldInfo::translateToPFLMIRNode() {
+MIRONode *StmtFieldInfo::translateToMIRONode() {
 	cerr << "StmtBlock translator not implemeted" << endl;
 	assert(1 == 0);
 	return NULL;

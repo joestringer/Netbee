@@ -67,7 +67,7 @@ typedef struct _nbVersion
 	//! Current revision code of the NetBee library.
 	int RevCode;
 	//! Release date (dd-mm-yyyy) of the NetBee library.
-	char* Date;
+  const char* Date;
 	//! Major version of the NetPDL language supported by this library.
 	int SupportedNetPDLMajor;
 	//! Minor version of the NetPDL language supported by this library.

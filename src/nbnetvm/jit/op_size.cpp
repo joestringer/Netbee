@@ -239,7 +239,8 @@ void Infer_Size::Set_Live_Range_Size(Infer_Size::BasicBlock *BB)
 void Infer_Size::Set_Insn_Live_Range_Size(MIRNode *insn)
 {
 	regsize_map_t::iterator entry;
-	operand_size_t maxSize = insn->getProperty<operand_size_t>("size");
+        // unused
+	// operand_size_t maxSize = insn->getProperty<operand_size_t>("size");
 	
 	// Rewrites the kids
 	for(unsigned i = 0; i < 2; ++i) {
@@ -262,7 +263,7 @@ void Infer_Size::Set_Insn_Live_Range_Size(MIRNode *insn)
 
 		insn->setProperty<operand_size_t>("size", entry->second);
 		insn->set_preferred_size(entry->second);
-		maxSize = entry->second;
+		// maxSize = entry->second;
 	}
 
 	return;

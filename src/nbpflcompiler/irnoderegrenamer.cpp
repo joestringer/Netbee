@@ -1,18 +1,18 @@
 #include "irnoderegrenamer.h"
 #include "registers.h"
 #include "basicblock.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include "tree.h"
 
 
 IRNodeRegRenamer::IRNodeRegRenamer(PFLCFG &cfg): _cfg(cfg)
 {
-	def_reg = PFLMIRNode::RegType::get_new(2);
+	def_reg = MIRONode::RegType::get_new(2);
 }
 
-void IRNodeRegRenamer::visitNode(PFLMIRNode *node)
+void IRNodeRegRenamer::visitNode(MIRONode *node)
 {
-	typedef PFLMIRNode::RegType RegType;
+	typedef MIRONode::RegType RegType;
 	if(node)
 	{
 		//std::cout << "Analizzo il nodo: " << std::endl;
@@ -35,9 +35,9 @@ void IRNodeRegRenamer::visitNode(PFLMIRNode *node)
 
 void IRNodeRegRenamer::VisitBasicBlock(PFLBasicBlock *bb, PFLBasicBlock *comingFrom)
 {
-	typedef PFLMIRNode::RegType RegType;
+	typedef MIRONode::RegType RegType;
 	typedef PFLBasicBlock BBType;
-	typedef PFLMIRNode IRType;
+	typedef MIRONode IRType;
 	typedef IRType::IRNodeIterator it_t;
 
 	BBType::IRStmtNodeIterator i;

@@ -1,0 +1,5 @@
+## Ignore builds
+*.o
+
+## Ignore binaries
+fsa_test

@@ -11,13 +11,17 @@
 
 #include "defs.h"
 #include "symbols.h"
+#include "encapgraph.h"
 #include "ircodegen.h"
 #include <nbprotodb.h>
 #include "globalsymbols.h"
-#include "treeoptimize.h"
 #include "compilerconsts.h"
 #include "filtersubgraph.h"
 #include "errors.h"
+#include "pflexpression.h"
+#include "encapfsa.h"
+
+
 
 #include <utility>
 
@@ -38,6 +42,20 @@ enum
 	PARSER_NO_VISIT_ENCAP = false
 };
 
+typedef struct _JumpInfo
+{
+	PFLExpression *expr;
+	SymbolLabel *jumpTrueLabel;
+	SymbolLabel *jumpFalseLabel;
+}JumpInfo;
+
+/* Use this string to label the "last resort" jump, that is those
+ * jumps derived by a complemented-set transition, if the only one
+ * with a complemented set for a certain protocol. (i.e. if X goto
+ * tcp, otherwise FAIL. 'otherwise' is what I call a "last resort"
+ * jump).
+ */
+#define LAST_RESORT_JUMP "others"
 
 /*!
 \brief
@@ -53,14 +71,15 @@ private:
 	struct FilterInfo
 	{
 		SymbolLabel			*FilterFalse;
-		FilterSubGraph		&SubGraph;
+		SymbolLabel			*FilterTrue;
+		EncapFSA 			&fsa;
 
-		FilterInfo(SymbolLabel *filterFalse, FilterSubGraph &subGraph)
-			:FilterFalse(filterFalse), SubGraph(subGraph){}
+		FilterInfo(SymbolLabel *filterFalse, SymbolLabel *filterTrue, EncapFSA &fsa)
+			:FilterFalse(filterFalse), FilterTrue(filterTrue), fsa(fsa){}
 	};
 
 
-	typedef list<IRCodeGen*> CodeGenStack_t;
+	typedef list<HIRCodeGen*> CodeGenStack_t;
 
 	struct SwitchCaseLess : public std::binary_function<_nbNetPDLElementCase *, _nbNetPDLElementCase *, bool>
 	{
@@ -78,7 +97,7 @@ private:
 	GlobalSymbols			&m_GlobalSymbols;
 	ErrorRecorder			&m_ErrorRecorder;
 	//FldScopeStack_t		*m_FieldScopes;
-	IRCodeGen				*m_CodeGen;
+	HIRCodeGen				*m_CodeGen;
 	SymbolProto				*m_CurrProtoSym;
 	uint32					m_LoopCount;
 	uint32					m_IfCount;
@@ -98,6 +117,7 @@ private:
 	SymbolVarInt			*m_nextProtoCandidate;	//!< ID of the next candidate resolved
 	SymbolLabel				*m_ResolveCandidateLabel;
 	list<int>				m_CandidateProtoToResolve;
+	std::map <string, SymbolLabel*> m_toStateProtoMap;
 
 	bool						m_ConvertingToInt;
 
@@ -108,10 +128,10 @@ private:
 	void ParseFieldDef(_nbNetPDLElementFieldBase *fieldElement);
 	void ParseAssign(_nbNetPDLElementAssignVariable *assignElement);
 	void ParseLoop(_nbNetPDLElementLoop *loopElement);
-	Node *ParseExpressionInt(_nbNetPDLExprBase *expr);
-	Node *ParseExpressionStr(_nbNetPDLExprBase *expr);
-	Node *ParseOperandStr(_nbNetPDLExprBase *expr);
-	Node *ParseOperandInt(_nbNetPDLExprBase *expr);
+	HIRNode *ParseExpressionInt(_nbNetPDLExprBase *expr);
+	HIRNode *ParseExpressionStr(_nbNetPDLExprBase *expr);
+	HIRNode *ParseOperandStr(_nbNetPDLExprBase *expr);
+	HIRNode *ParseOperandInt(_nbNetPDLExprBase *expr);
 	void ParseRTVarDecl(_nbNetPDLElementVariable *variable);
 	void ParseElement(_nbNetPDLElementBase *element);
 	void ParseElements(_nbNetPDLElementBase *firstElement);
@@ -132,9 +152,12 @@ private:
 
 	void ParseLookupTable(_nbNetPDLElementLookupTable *table);
 	void ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *element);
-	Node *ParseLookupTableSelect(uint16 op, string tableName, SymbolLookupTableKeysList *keys);
-	void ParseLookupTableAssign(_nbNetPDLElementAssignLookupTable *element);
-	Node *ParseLookupTableItem(string tableName, string itemName, Node *offsetStart, Node *offsetSize);
+	HIRNode *ParseLookupTableSelect(HIROpcodes op, string tableName, SymbolLookupTableKeysList *keys);
+	
+	//[icerrato] this method use the opcode PUSH for an HIR statement, but PUSH is a MIR one
+	//void ParseLookupTableAssign(_nbNetPDLElementAssignLookupTable *element);
+	
+	HIRNode *ParseLookupTableItem(string tableName, string itemName, HIRNode *offsetStart, HIRNode *offsetSize);
 
 	void CheckVerifyResult(uint32 nextProtoID);
 
@@ -149,7 +172,7 @@ private:
 	//void ExitFldScope(void);
 	char *GetProtoName(struct _nbNetPDLExprBase *expr);
 
-	void ChangeCodeGen(IRCodeGen &codeGen);
+	void ChangeCodeGen(HIRCodeGen &codeGen);
 	void RestoreCodeGen(void);
 
 	void GenProtoEntryCode(SymbolProto &protoSymbol);
@@ -162,12 +185,12 @@ private:
 	void VisitSwitch(_nbNetPDLElementSwitch *switchElem);
 	void VisitIf(_nbNetPDLElementIf *ifElement);
 
-	//void ParseStartProto(IRCodeGen &IRCodeGen);
+	//void ParseStartProto(HIRCodeGen &IRCodeGen);
 
 	// [ds] added functions to generate debug information, warnings and errors
-	void GenerateInfo(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation);
-	void GenerateWarning(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation);
-	void GenerateError(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation);
+	void GenerateInfo(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation);
+	void GenerateWarning(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation);
+	void GenerateError(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation);
 
 
 public:
@@ -181,11 +204,11 @@ public:
 	~PDLParser(void)
 	{
 	}
-
-	void ParseStartProto(IRCodeGen &IRCodeGen, bool visitEncap);
-	void ParseProtocol(SymbolProto &protoSymbol, IRCodeGen &IRCodeGen, bool visitEncap);
-	void ParseEncapsulation(SymbolProto &protoSymbol, FilterSubGraph &subGraph, SymbolLabel *filterFalse, IRCodeGen &IRCodeGen);
-	void ParseExecBefore(SymbolProto &protoSymbol, FilterSubGraph &subGraph, SymbolLabel *filterFalse, IRCodeGen &IRCodeGen);
+	void ParseBeforeSection(_nbNetPDLElementExecuteX *execSection,HIRCodeGen &irCodeGen);
+	void ParseStartProto(HIRCodeGen &IRCodeGen, bool visitEncap);
+	void ParseProtocol(SymbolProto &protoSymbol, HIRCodeGen &IRCodeGen, bool visitEncap);
+	void ParseEncapsulation(SymbolProto *protoSymbol, std::map<string, SymbolLabel*> toStateProtoMap, EncapFSA *fsa, bool defaultBehav, SymbolLabel *filterFalse, SymbolLabel *filterTrue, HIRCodeGen &irCodeGen);
+	void ParseExecBefore(SymbolProto &protoSymbol, EncapFSA &fsa, SymbolLabel *filterFalse,  SymbolLabel *filterTrue, HIRCodeGen &IRCodeGen);
 
 
 };

@@ -21,26 +21,36 @@
 
 uint32_t IntHashFunct(uint32_t key, uint32_t size)
 {
-	double hash, i, f, c;
+double hash, i, f, c;
+
 	c = (sqrt(5) - 1) / 2;
 	f = modf(key * c, &i);
 	hash = size *  f;
-	VERB2(JIT_BUILD_BLOCK_LVL2, __FUNCTION__ " Generated integer hash %u for key %u\n", (uint32_t)hash, key);
-	return ((uint32_t)hash);
 
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Generated integer hash %u for key %",
+			 (uint32_t)hash, key);
+#endif
+
+	return ((uint32_t)hash);
 }
+
 
 PIntHashTbl New_Int_HTbl(uint32_t	size)
 {
-	PIntHashTbl newHashTable;
+PIntHashTbl newHashTable;
+
 	if (size == 0)
 		return NULL;
+	
 	newHashTable = CALLOC(1, sizeof(IntHashTbl));
+	
 	if (newHashTable == NULL)
 		return NULL;
 
 	newHashTable->Table = CALLOC(size, sizeof(PIntHashTblEntry));
-	if (newHashTable->Table == NULL){
+	if (newHashTable->Table == NULL)
+	{
 		free(newHashTable);
 		return NULL;
 	}
@@ -58,7 +68,8 @@ void Free_Int_HTbl(PIntHashTbl hashTable)
 	if (hashTable == NULL)
 		return;
 
-	for (i = 0; i< hashTable->Size; i++){
+	for (i = 0; i< hashTable->Size; i++)
+	{
 		currItem = hashTable->Table[i];
 		while (currItem != NULL)
 		{
@@ -82,8 +93,10 @@ PIntHashTblEntry Int_HTbl_LookUp(PIntHashTbl hashTable, uint32_t key, uint32_t v
 
 	index = IntHashFunct(key, hashTable->Size);
 	currItem = hashTable->Table[index];
-	while (currItem != NULL){
-		if (currItem->Key == key) {
+	while (currItem != NULL)
+	{
+		if (currItem->Key == key)
+		{
 			if(addItem)
 				currItem->Value = value;
 			return currItem;
@@ -92,9 +105,13 @@ PIntHashTblEntry Int_HTbl_LookUp(PIntHashTbl hashTable, uint32_t key, uint32_t v
 		depth++;
 	}
 	
-	VERB3(JIT_BUILD_BLOCK_LVL2, __FUNCTION__ " key %u, hash %u, level %u\n", key, index, depth);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Key %u, Hash %u for key %",
+			 key, index, depth);
+#endif
 
-	if (addItem){
+	if (addItem)
+	{
 		currItem = (PIntHashTblEntry)CALLOC(1, sizeof(IntHashTblEntry));
 		if (currItem == NULL)
 			return NULL;

@@ -1723,10 +1723,10 @@ int RetVal;
 */
 int CPDMLMaker::ScanForFieldRef(struct _nbPDMLField *PDMLField, char *ProtoName, char *FieldName, _nbPDMLField **PDMLLocatedField, char *ErrBuf, int ErrBufSize)
 {
-struct _nbPDMLField *Result;
+// struct _nbPDMLField *Result;
 struct _nbPDMLField *PDMLLastField;
 
-	Result= NULL;
+// Result= NULL;
 
 	// The caller didn't specify the name of the field we are looking for
 	// So, we're looking for the current field.

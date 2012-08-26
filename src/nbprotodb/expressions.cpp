@@ -796,15 +796,16 @@ int StringSize;
 struct _nbNetPDLExprVariable* UpdateVariableItem(void *Variable, void *StartOffset, void *Size)
 {
 struct _nbNetPDLExprVariable *NetPDLElement;
-struct _nbNetPDLExprBase *OperandElement;
+// unused
+// struct _nbNetPDLExprBase *OperandElement;
 
 	NetPDLElement= (struct _nbNetPDLExprVariable *) Variable;
 
-	OperandElement= (struct _nbNetPDLExprBase  *) StartOffset;
+//	OperandElement= (struct _nbNetPDLExprBase  *) StartOffset;
 
 	NetPDLElement->OffsetStartAt= (struct _nbNetPDLExprBase *) StartOffset;
 
-	OperandElement= (struct _nbNetPDLExprBase *) Size;
+//	OperandElement= (struct _nbNetPDLExprBase *) Size;
 
 	NetPDLElement->OffsetSize= (struct _nbNetPDLExprBase *) Size;
 
@@ -815,14 +816,15 @@ struct _nbNetPDLExprBase *OperandElement;
 struct _nbNetPDLExprFieldRef* UpdateProtoFieldItem(void *ProtoField, void *StartOffset, void *Size)
 {
 struct _nbNetPDLExprFieldRef *NetPDLElement;
-struct _nbNetPDLExprBase *OperandElement;
+// unused
+// struct _nbNetPDLExprBase *OperandElement;
 
 	NetPDLElement= (struct _nbNetPDLExprFieldRef *) ProtoField;
 
-	OperandElement= (struct _nbNetPDLExprBase *) StartOffset;
+//	OperandElement= (struct _nbNetPDLExprBase *) StartOffset;
 	NetPDLElement->OffsetStartAt= (struct _nbNetPDLExprBase *) StartOffset;
 
-	OperandElement= (struct _nbNetPDLExprBase *) Size;
+//	OperandElement= (struct _nbNetPDLExprBase *) Size;
 	NetPDLElement->OffsetSize= (struct _nbNetPDLExprBase *) Size;
 
 	return NetPDLElement;

@@ -84,7 +84,7 @@ void nbGetLastError(const char *CallerString, char *ErrBuf, int ErrBufSize);
 	\note This function is exported because there are calls (like accept() ) which are not managed 
 	from inside the sockutils files.
 */
-void nbGetLastErrorEx(char *File, char *Function, int Line, const char *CallerString, char *ErrBuf, int ErrBufSize);
+void nbGetLastErrorEx(const char *File, const char *Function, int Line, const char *CallerString, char *ErrBuf, int ErrBufSize);
 
 
 /*!
@@ -131,7 +131,7 @@ int ssnprintf(char* Buffer, int BufSize, const char *Format, ...);
 	\warning The last '\\0' character is not included in the number
 	of characters copied.
 */
-int sstrncat(char *Destination, char *Source, int DestSize);
+int sstrncat(char *Destination, const char *Source, int DestSize);
 
 
 /*!
@@ -154,7 +154,7 @@ int sstrncat(char *Destination, char *Source, int DestSize);
 	\warning The last '\\0' character is not included in the number
 	of characters copied.
 */
-int sstrncpy(char *Destination, char *Source, int DestSize);
+int sstrncpy(char *Destination, const char *Source, int DestSize);
 
 
 /*!

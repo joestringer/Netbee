@@ -46,6 +46,11 @@
 #define	REGEX_IN_OFFSET_FOUND		2
 #define	REGEX_IN_LENGTH_FOUND		3
 
+enum TranslateTreebehavior{
+	NOTHING,
+	OFFSET,
+	SIZE
+};
 
 class IRLowering
 {
@@ -71,12 +76,14 @@ class IRLowering
 
 
 	CompilationUnit	&m_CompUnit;
-	IRCodeGen		&m_CodeGen;
+	MIRCodeGen		&m_CodeGen;
 	SymbolProto		*m_Protocol;
-	GlobalSymbols	&m_GlobalSymbols;
-	list<LoopInfo>	m_LoopStack;
+	GlobalSymbols		&m_GlobalSymbols;
+	list<LoopInfo>		m_LoopStack;
 	uint32			m_TreeDepth;
 	SymbolLabel		*m_FilterFalse;
+	TranslateTreebehavior	translForRegExp;
+	bool			genExtractionCode; //[icerrato]
 
 	SymbolTemp *AssociateVarTemp(SymbolVarInt *var);
 
@@ -88,13 +95,13 @@ class IRLowering
 
 	void TranslateJump(StmtJump *stmt);
 
-	void TranslateSwitch(StmtSwitch *stmt);
+	void TranslateSwitch(HIRStmtSwitch *stmt);
 
-	void TranslateCase(StmtSwitch *newSwitchSt, StmtCase *caseSt, SymbolLabel *swExit, bool IsDefault);
+	void TranslateCase(MIRStmtSwitch *newSwitchSt, StmtCase *caseSt, SymbolLabel *swExit, bool IsDefault);
 
-	void TranslateCases(StmtSwitch *newSwitchSt, CodeList *cases, SymbolLabel *swExit);
+	void TranslateCases(MIRStmtSwitch *newSwitchSt, CodeList *cases, SymbolLabel *swExit);
 
-	void TranslateSwitch2(StmtSwitch *stmt);
+	//void TranslateSwitch2(StmtSwitch *stmt); [icerrato] never used
 
 	void TranslateIf(StmtIf *stmt);
 
@@ -108,70 +115,70 @@ class IRLowering
 
 	void TranslateContinue(StmtCtrl *stmt);
 
-	Node *TranslateTree(Node *node);
+	MIRNode *TranslateTree(HIRNode *node);
 
-	Node *TranslateIntVarToInt(Node *node);
+	MIRNode *TranslateIntVarToInt(HIRNode *node);
 
-	Node *TranslateCInt(Node *node);
+	MIRNode *TranslateCInt(HIRNode *node);
 
-	Node *TranslateStrVarToInt(Node *node, Node* offset, uint32 size);
+	MIRNode *TranslateStrVarToInt(HIRNode *node, MIRNode* offset, uint32 size);
 
-	Node *TranslateFieldToInt(Node *node, Node* offset, uint32 size);
+	MIRNode *TranslateFieldToInt(HIRNode *node, MIRNode* offset, uint32 size);
 
-	Node *GenMemLoad(Node *offsNode, uint32 size);
+	MIRNode *GenMemLoad(MIRNode *offsNode, uint32 size);
 
-	Node *TranslateConstInt(Node *node);
+	MIRNode *TranslateConstInt(HIRNode *node);
 
-	Node *TranslateConstStr(Node *node);
+	//Node *TranslateConstStr(Node *node); [icerrato] never used
 
-	Node *TranslateConstBool(Node *node);
+	MIRNode *TranslateConstBool(HIRNode *node);
 
-	Node *TranslateTemp(Node *node);
+	//Node *TranslateTemp(Node *node);[icerrato] not implemented
 
-	void TranslateBoolExpr(Node *expr, JCondInfo &jcInfo);
+	void TranslateBoolExpr(HIRNode *expr, JCondInfo &jcInfo);
 
-	void TranslateRelOpInt(uint16 op, Node *relopExpr, JCondInfo &jcInfo);
+	void TranslateRelOpInt(MIROpcodes op, HIRNode *relopExpr, JCondInfo &jcInfo);
 
-	void TranslateRelOpStr(uint16 op, Node *relopExpr, JCondInfo &jcInfo);
+	void TranslateRelOpStr(MIROpcodes op, HIRNode *relopExpr, JCondInfo &jcInfo);
 
-	void TranslateRelOpStrOperand(Node *operand, Node **loadOperand, Node **loadSize, uint32 *size);
+	void TranslateRelOpStrOperand(HIRNode *operand, MIRNode **loadOperand, MIRNode **loadSize, uint32 *size);
 
-	void TranslateRelOpLookup(uint16 opCode, Node *expr, JCondInfo &jcInfo);
+	void TranslateRelOpLookup(HIROpcodes opCode, HIRNode *expr, JCondInfo &jcInfo);
 
-	void TranslateRelOpRegEx(Node *expr, JCondInfo &jcInfo);
+	void TranslateRelOpRegExStrMatch(HIRNode *expr, JCondInfo &jcInfo, string copro);
 
 	bool TranslateLookupSetValue(SymbolLookupTableEntry *entry, SymbolLookupTableValuesList *values, bool isKeysList);
 
 	bool TranslateLookupSelect(SymbolLookupTableEntry *entry, SymbolLookupTableValuesList *keys);
 
-	void TranslateLookupInitTable(Node *node);
+	//void TranslateLookupInitTable(Node *node); [icerrato] never used
 
-	void TranslateLookupInit(Node *node);
+	//void TranslateLookupInit(Node *node); [icerrato]  never used
 
-	void TranslateLookupUpdate(Node *node);
+	void TranslateLookupUpdate(HIRNode *node);
 
-	void TranslateLookupDelete(Node *node);
+	void TranslateLookupDelete(HIRNode *node);
 
-	void TranslateLookupAdd(Node *node);
+	void TranslateLookupAdd(HIRNode *node);
 
-	void TranslateFieldDef(Node *node);
+	void TranslateFieldDef(HIRNode *node);
 
-	void TranslateVarDeclInt(Node *node);
+	void TranslateVarDeclInt(HIRNode *node);
 
-	void TranslateVarDeclStr(Node *node);
+	void TranslateVarDeclStr(HIRNode *node);
 
-	void TranslateAssignInt(Node *node);
+	void TranslateAssignInt(HIRNode *node);
 
-	void TranslateAssignStr(Node *node);
+	void TranslateAssignStr(HIRNode *node);
 
-	void TranslateAssignRef(SymbolVarBufRef *refVar, Node *right);
+	//void TranslateAssignRef(SymbolVarBufRef *refVar, Node *right);[icerrato] never used
 
-	Node *TranslateArithBinOp(uint16 op, Node *node);
+	MIRNode *TranslateArithBinOp(MIROpcodes op, HIRNode *node);
 
-	Node *TranslateArithUnOp(uint16 op, Node *node);
+	MIRNode *TranslateArithUnOp(MIROpcodes op, HIRNode *node);
 
-	Node *TranslateDiv(Node *node);
-
+	MIRNode *TranslateDiv(HIRNode *node);
+	
 	void TranslateStatement(StmtBase *stmt);
 
 	void LowerHIRCode(CodeList *code);
@@ -180,19 +187,19 @@ class IRLowering
 
 	void ExitLoop(void);
 
-	void GenTempForVar(Node *node);
+	void GenTempForVar(HIRNode *node);
 
-	void GenerateInfo(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation);
+	void GenerateInfo(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation);
 
-	void GenerateWarning(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation);
+	void GenerateWarning(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation);
 
-	void GenerateError(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation);
+	void GenerateError(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation);
 
 public:
 
-	IRLowering(CompilationUnit &compUnit, IRCodeGen &codeGen, SymbolLabel *filterFalse)
+	IRLowering(CompilationUnit &compUnit, MIRCodeGen &codeGen, SymbolLabel *filterFalse)
 		:m_CompUnit(compUnit), m_CodeGen(codeGen), m_Protocol(0), m_GlobalSymbols(codeGen.GetGlobalSymbols()),
-		m_TreeDepth(0), m_FilterFalse(filterFalse)
+		m_TreeDepth(0), m_FilterFalse(filterFalse),translForRegExp(NOTHING), genExtractionCode(true)
 	{
 		m_CompUnit.MaxStack = 0;
 		m_CompUnit.NumLocals = 0;
@@ -200,7 +207,7 @@ public:
 
 
 
-	void LowerHIRCode(CodeList *code, SymbolProto *proto, string comment = "");
+	void LowerHIRCode(CodeList *code, SymbolProto *proto, string comment = "", bool resetCurrentOffset = false);
 
 	void LowerHIRCode(CodeList *code, string comment);
 

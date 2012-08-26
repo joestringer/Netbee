@@ -197,7 +197,7 @@ typedef struct _PluginParams
 typedef struct _PluginList
 {
 	//! Name of the plugin, as it appears in the NetPDL &lt;plugin&gt; element.
-	char *PluginName;
+	const char *PluginName;
 	//! Pointer to the function that implements the plugin.
 	nbPluginHandler PluginHandler;
 } _PluginList;

@@ -64,7 +64,7 @@
 	<tr>
 		<td valign="top">\ref NetBeePacketEngine</td>
 		<td> <p>
-		This section defines some classes that can be used filter packets and to extract selected fields from network
+		This section defines some classes that can be used to filter packets and to extract selected fields from network
 		packets.<p>
 		These classes include also a wrapper to the NetPFL Compiler module, which allows using those primitives
 		seamlessly for generating packet filters and field extractors.<p>
@@ -73,6 +73,13 @@
 		</td>
 	</tr>
 	<tr>
+		<td valign="top">\ref NetBeePacketDumpFiles</td>
+		<td> <p>
+		This section defines some classes that can be used to manage packet dump files. Those classes can be used to 
+		open/create dump files, and to write/read data to/from them. Additionally, some advanced feature (e.g. keep
+		the packet list) can be enabled, in order to provide random access to the packets in those files.<p>
+		</td>
+	</tr>	<tr>
 		<td valign="top">\ref NetBeeUtils</td>
 		<td>Class nbNetPDLUtils provides some utilities which can be useful to manipulate field value (e.g. in
 		PDML files. For instance, this class contains some methods to convert the hex dump of a field into 

@@ -81,7 +81,10 @@ PGenHashTblEntry Gen_HTbl_LookUp(PGenHashTbl hashTable, uint32_t key, void *valu
 		depth++;
 	}
 	
-	VERB3(JIT_BUILD_BLOCK_LVL2, __FUNCTION__ " key %u, hash %u, level %u\n", key, index, depth);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Key %u, Hash %u for key %",
+			 key, index, depth);
+#endif
 
 	if (addItem){
 		currItem = (PGenHashTblEntry)CALLOC(1, sizeof(genHashTblEntry));

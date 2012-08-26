@@ -26,9 +26,11 @@ nbNetPFLCompiler *nbAllocateNetPFLCompiler(_nbNetPDLDatabase *NetPDLProtoDB)
 }
 
 void nbDeallocateNetPFLCompiler(nbNetPFLCompiler *NetPFLCompiler)
-{
+{	
 	if (NetPFLCompiler)
+	{
 		delete NetPFLCompiler;
+	}
 }
 
 
@@ -74,10 +76,8 @@ void nbNetPFLCompiler::NetPDLCleanup(void)
 {
 	if (this->m_debugLevel > 2)
 		nbPrintDebugLine("Cleaning NetPFL Front End", DBG_TYPE_INFO, __FILE__, __FUNCTION__, __LINE__, 2);
-
 	if (PFLFrontEnd)
 		delete PFLFrontEnd;
-
 	PFLFrontEnd= NULL;
 	PDLInited= false;
 }
@@ -255,6 +255,11 @@ _nbNetPFLCompilerMessages *nbNetPFLCompiler::GetCompMessageList(void)
 	return MsgList;
 }
 
+void nbNetPFLCompiler::PrintFSA(const char *AutomatonFilename)
+{
+	PFLFrontEnd->PrintFinalAutomaton(AutomatonFilename);
+}
+
 int nbNetPFLCompiler::CheckFilter(const char *NetPFLFilterString)
 {
 bool RetVal;
@@ -270,7 +275,7 @@ bool RetVal;
 		return nbFAILURE;
 	}
 
-	if (NetPFLFilterString)
+	if (!NetPFLFilterString)
 		RetVal= PFLFrontEnd->CheckFilter("");
 	else
 		RetVal= PFLFrontEnd->CheckFilter(NetPFLFilterString);
@@ -287,10 +292,41 @@ bool RetVal;
 	return nbSUCCESS;
 }
 
+int nbNetPFLCompiler::CreateAutomatonFromFilter(const char *NetPFLFilterString)
+{
+	int RetVal;
+
+	if (m_debugLevel > 1)
+		nbPrintDebugLine("Compiling filter...", DBG_TYPE_INFO, __FILE__, __FUNCTION__, __LINE__, 1);
+
+	ClearMsgList();
+
+	if (!(PDLInited && PFLFrontEnd))
+	{
+		errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "NetPDL Compiler Engine has not been initialized, please use NetPDLInit().");
+		return nbFAILURE;
+	}
+
+	if (NetPFLFilterString == NULL)
+		RetVal= PFLFrontEnd->CreateAutomatonFromFilter(""); //RetVal can be: nbSUCCESS, nbFAILURE or nbWARNING
+	else
+		RetVal= PFLFrontEnd->CreateAutomatonFromFilter(NetPFLFilterString);
+
+	ErrorRecorder &errRecorder = PFLFrontEnd->GetErrRecorder();
+	FillMsgList(errRecorder);
+
+	if ((errRecorder.NumErrors() > 0) || (RetVal==nbFAILURE))
+	{
+		errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "Failed to compile the NetPFL filter");
+		return nbFAILURE;
+	}
+
+	return nbSUCCESS;
+}
 
 int nbNetPFLCompiler::CompileFilter(const char *NetPFLFilterString, char **NetILCode, bool optimizationCycles)
 {
-bool RetVal;
+int RetVal;
 
 	if (m_debugLevel > 1)
 		nbPrintDebugLine("Compiling filter...", DBG_TYPE_INFO, __FILE__, __FUNCTION__, __LINE__, 1);
@@ -310,15 +346,14 @@ bool RetVal;
 	}
 
 	if (NetPFLFilterString == NULL)
-		RetVal= PFLFrontEnd->CompileFilter("", optimizationCycles);
+		RetVal= PFLFrontEnd->CompileFilter("", optimizationCycles); //RetVal can be: nbSUCCESS, nbFAILURE or nbWARNING
 	else
 		RetVal= PFLFrontEnd->CompileFilter(NetPFLFilterString, optimizationCycles);
-
 
 	ErrorRecorder &errRecorder = PFLFrontEnd->GetErrRecorder();
 	FillMsgList(errRecorder);
 
-	if ((errRecorder.NumErrors() > 0) || !RetVal)
+	if ((errRecorder.NumErrors() > 0) || (RetVal==nbFAILURE))
 	{
 		errorsnprintf(__FILE__, __FUNCTION__, __LINE__, m_errbuf, sizeof(m_errbuf), "Failed to compile the NetPFL filter");
 		return nbFAILURE;
@@ -441,6 +476,7 @@ int j=0;
 			Descriptors->FieldDescriptor[j].DataFormatType = nbNETPFLCOMPILER_DATAFORMAT_FIELDLIST;
 			Descriptors->FieldDescriptor[j].Name = "allfields";
 			Descriptors->FieldDescriptor[j].Proto = field->Protocol->Name.c_str();
+			Descriptors->FieldDescriptor[j].Position = field->Position;
 			Descriptors->FieldDescriptor[j].FieldType = (nbExtractedFieldsFieldType_t) field->FieldType;
 			Descriptors->FieldDescriptor[j].DVct = new _nbExtractedFieldsDescriptorVector(nbNETPFLCOMPILER_MAX_ALLFIELDS);
 		}

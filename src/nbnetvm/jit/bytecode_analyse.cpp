@@ -217,7 +217,8 @@ uint32_t Local_LD(uint32_t *LocalsRefs, uint32_t locIndex, uint16_t localsSize, 
 
 	result = Stack_PUSH(sp, stackLimit, ONE_STACK_ELEMENT);
 
-	if (locIndex >= localsSize){
+	if (locIndex >= localsSize)
+	{
 		result |= FLAG_LST_LOCAL_OUTOB;
 		return result;
 	}
@@ -245,7 +246,8 @@ uint16_t Get_Locals_Use(uint32_t *LocalsRefs, uint16_t localsSize)
 	if (LocalsRefs == NULL)
 		return nvmJitSUCCESS;
 
-	for (i = 0; i < localsSize; i++){
+	for (i = 0; i < localsSize; i++)
+	{
 		if (LocalsRefs[i])
 			result++;
 	}
@@ -270,7 +272,9 @@ uint16_t Get_Locals_Use(uint32_t *LocalsRefs, uint16_t localsSize)
 
 void Update_Instr_Stack_Depth(InstructionInfo * BCInfoArray, uint32_t pc, int32_t currStackDepth)
 {
-	VERB0(JIT_BUILD_BLOCK_LVL2, "Update_Instr_Stack_Depth");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Update_Instr_Stack_Depth");
+#endif
 
 	BCInfoArray[pc].StackDepth = MAX(BCInfoArray[pc].StackDepth,currStackDepth);
 
@@ -611,8 +615,9 @@ nvmJitByteCodeInfo * New_ByteCode_Info(nvmByteCodeSegment * segment, ErrorList *
 		return BCInfo;
 	}
 
-
-	VERB0(JIT_BUILD_BLOCK_LVL2, "BCInfo Created");
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "BCInfo Created");
+#endif
 
 	Free_Instr_Indexes(InstrIndexesStruct);
 	return BCInfo;
@@ -1004,26 +1009,26 @@ nvmJitByteCodeInfo * nvmJitAnalyse_ByteCode_Segment_Ex(nvmByteCodeSegment * segm
 		LocalsReferences = NULL;
 	}
 
-	VERB0(JIT_BUILD_BLOCK_LVL2, "\n___________________ ByteCode Analysis Step: ____________________\n\n");
-	VERB1(JIT_BUILD_BLOCK_LVL2, "\t>Segment Name: %s\n", segment->Name);
-	VERB1(JIT_BUILD_BLOCK_LVL2, "\t>Locals Size: %d\n", LocalsSize);
-	VERB1(JIT_BUILD_BLOCK_LVL2, "\t>Max Stack Size: %d\n\n", StackLimit);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "ByteCode Analysis Step");
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "----------------------");
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Segment Name: %s\n", segment->Name);
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Locals Size: %d", LocalsSize);
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Max Stack Size: %d", StackLimit);
+#endif
 
 	BCInfoArray = BCInfo->BCInfoArray;
 	numInstructions = BCInfo->NumInstructions;
 	pc = 0;
-//	BBCount = 0;
 	maxStackDepth = sp;
 
 	//first instruction is BB leader:
-//	Add_First_Basic_Block(BCInfoArray, pc, sp, &BBCount);
 	Add_First_Basic_Block(BCInfoArray, pc, sp, BBCount);
 
-
-	while (pc < numInstructions){
-
-
-		switch(BCInfoArray[pc].Opcode){
+	while (pc < numInstructions)
+	{
+		switch(BCInfoArray[pc].Opcode)
+		{
 
 			case RET:
 			case SNDPKT:
@@ -1429,16 +1434,23 @@ nvmJitByteCodeInfo * nvmJitAnalyse_ByteCode_Segment_Ex(nvmByteCodeSegment * segm
 				break;
 
 			//Packet Instructions  STACK TRANSITION: ... ==> ...)
-			/*case SNDPKT: */ case RCVPKT: case DSNDPKT: case DELEXBUF: case COPRUN: case COPPKTOUT:
+			case RCVPKT:
+			case DSNDPKT:
+			case DELEXBUF:
+			case COPRUN:
+			case COPPKTOUT:
 			case INFOCLR:
 			case NOP:	// NOTHING
 				break;
+
 			default:	//TODO: analyse Bytecode: OTHER instr
 
-				VERB2(JIT_BUILD_BLOCK_LVL2, "%d --> OPCODE NOT IMPLEMENTED:  %s\n",pc, nvmOpCodeTable[BCInfoArray[pc].Opcode].CodeName);
+#ifdef ENABLE_NETVM_LOGGING
+				logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Opcode not implemented, PC= %d, Name= %s",
+					pc, nvmOpCodeTable[BCInfoArray[pc].Opcode].CodeName);
+#endif
 
 				BCInfo->AnalysisFlags |= FLAG_OP_NOT_IMPLEMENTED;
-//				Analysis_Error(errList, FLAG_OP_NOT_IMPLEMENTED, pc, sp, BBCount);
 				Analysis_Error(errList, FLAG_OP_NOT_IMPLEMENTED, &BCInfoArray[pc], 0, sp, *BBCount);
 				break;
 		}

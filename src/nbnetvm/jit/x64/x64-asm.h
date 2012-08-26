@@ -10,6 +10,7 @@
 #include "registers.h"
 #include "netvmjitglobals.h"
 
+#include <cstddef>	// Added for catching an error on missing def for ptrdiff_t on Ubuntu 11.10
 #include <list>
 #include <set>
 #include <iostream>

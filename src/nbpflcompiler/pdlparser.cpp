@@ -41,7 +41,7 @@ PDLParser::PDLParser(_nbNetPDLDatabase &protoDB, GlobalSymbols &globalSymbols, E
 /*****************************************************************************/
 /*   Code manipulation                                                       */
 /*****************************************************************************/
-void PDLParser::ChangeCodeGen(IRCodeGen &codeGen)
+void PDLParser::ChangeCodeGen(HIRCodeGen &codeGen)
 {
 	m_CodeGenStack.push_back(m_CodeGen);
 	m_CodeGen = &codeGen;
@@ -64,8 +64,8 @@ void PDLParser::GenProtoEntryCode(SymbolProto &protoSymbol)
 	//	protoSymbol.FalseShtcutLbl = m_CodeGen->NewLabel(LBL_LINKED, string(protoSymbol.Name) + string("_FALSE"));
 
 	/* generate the label corresponding to the first instruction for the current protocol*/
-	this->m_CodeGen->CommentStatement(string(""));
-	m_CodeGen->LabelStatement(m_GlobalSymbols.GetProtoStartLbl(&protoSymbol));
+	// this->m_CodeGen->CommentStatement(string(""));
+	// m_CodeGen->LabelStatement(m_GlobalSymbols.GetProtoStartLbl(&protoSymbol));
 	this->m_CodeGen->CommentStatement(string("PROTOCOL ").append(protoSymbol.Name).append(": FORMAT"));
 	//entryLabel->Comment = "--- PROTOCOL " + protoSymbol.Name + " ---";
 
@@ -308,7 +308,9 @@ void PDLParser::ParseElement(_nbNetPDLElementBase *element)
 		break;
 
 	case nbNETPDL_IDEL_ASSIGNLOOKUPTABLE:
-		ParseLookupTableAssign((_nbNetPDLElementAssignLookupTable *)element);
+		//[icerrato]
+		//ParseLookupTableAssign((_nbNetPDLElementAssignLookupTable *)element);
+		nbASSERT(false,"Element <assign-lookuptable> is not supported yet");
 		break;
 
 	default:
@@ -325,9 +327,9 @@ void PDLParser::ParseElement(_nbNetPDLElementBase *element)
 
 /*****************************************************************************/
 /**** Parsing expressions   **************************************************/
-Node *PDLParser::ParseExpressionInt(_nbNetPDLExprBase *expr)
+HIRNode *PDLParser::ParseExpressionInt(_nbNetPDLExprBase *expr)
 {
-	Node *subExpr1(0), *subExpr2(0);
+	HIRNode *subExpr1(0), *subExpr2(0);
 	//uint16 typeSuffix1(0), typeSuffix2(0);
 
 	nbASSERT(expr != NULL, "expression cannot be NULL");
@@ -470,6 +472,7 @@ Node *PDLParser::ParseExpressionInt(_nbNetPDLExprBase *expr)
 
 			default:
 				nbASSERT(false, "CANNOT BE HERE");
+
 				break;
 			}
 		}
@@ -477,61 +480,86 @@ Node *PDLParser::ParseExpressionInt(_nbNetPDLExprBase *expr)
 	else
 	{
 		// the second operand is a buffer (or you don't have to mind), the first operand should be a buffer
-		subExpr2 = ParseOperandStr(Expression->Operand2);
-		if (subExpr2==NULL)
-		{
-			this->GenerateWarning(string("Operand '").append(string(Expression->Operand2->Token)).append("' cannot be evaluated"),
-				__FILE__, __FUNCTION__, __LINE__, 1, 5);
-			return NULL;
-		}
-
+		
 		if (Expression->Operand1==NULL)
 		{
 			this->GenerateWarning(string("Operand '").append(string(Expression->Operand1->Token)).append("' is not defined"),
 				__FILE__, __FUNCTION__, __LINE__, 1, 5);
 			return NULL;
 		}
-
-		subExpr1 = ParseOperandStr(Expression->Operand1);
-		if (subExpr1==NULL)
+		if (Expression->Operand2==NULL)
 		{
-			this->GenerateWarning(string("Operand '").append(string(Expression->Operand1->Token)).append("' cannot be evaluated"),
+			this->GenerateWarning(string("Operand '").append(string(Expression->Operand1->Token)).append("' is not defined"),
 				__FILE__, __FUNCTION__, __LINE__, 1, 5);
-
 			return NULL;
 		}
-
-		// generate integer/boolean expression with integer/boolean operands
-		switch (Expression->Operator->OperatorType)
-		{
-		case nbNETPDL_ID_EXPR_OPER_EQUAL:
-			return m_CodeGen->BinOp(IR_EQS, subExpr1, subExpr2);
-			break;
-
-		case nbNETPDL_ID_EXPR_OPER_NOTEQUAL:
-			return m_CodeGen->BinOp(IR_NES, subExpr1, subExpr2);
-			break;
-
-		case nbNETPDL_ID_EXPR_OPER_GREAT:
-			return m_CodeGen->BinOp(IR_GTS, subExpr1, subExpr2);
-			break;
-
-		case nbNETPDL_ID_EXPR_OPER_LESS:
-			return m_CodeGen->BinOp(IR_LTS, subExpr1, subExpr2);
-			break;
-
-		default:
-			nbASSERT(false, "CANNOT BE HERE");
-			break;
+	
+		if((Expression->Operator->OperatorType==nbNETPDL_ID_EXPR_OPER_EQUAL)||(Expression->Operator->OperatorType==nbNETPDL_ID_EXPR_OPER_NOTEQUAL)){
+		
+			//Translate this operation in a string matching one	
+			nbASSERT(Expression->Operand2->Type==nbNETPDL_ID_EXPR_OPERAND_STRING,"the second operand of an \"==\" must be a constant string");
+			_nbNetPDLExprString* operand = (_nbNetPDLExprString*)Expression->Operand2;
+			
+			SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen->ConstStrSymbol(string((const char*)operand->Value)); 
+			HIRNode *buffer = ParseExpressionStr(Expression->Operand1);
+			if (buffer==NULL)
+			{
+				this->GenerateWarning(string("Operand '").append(string(Expression->Operand1->Token)).append("' cannot be evaluated"),
+					__FILE__, __FUNCTION__, __LINE__, 1, 5);
+				return NULL;
+			}
+			
+			SymbolRegExPDL *regExpSym = new SymbolRegExPDL(buffer,pattern,true,m_GlobalSymbols.GetStringMatchingEntriesCount());  //case sensitive
+			m_GlobalSymbols.StoreStringMatchingEntry(regExpSym);
+			
+			HIRNode *copro = m_CodeGen->TermNode(IR_STRINGMATCHINGFND, regExpSym);
+			return 	(Expression->Operator->OperatorType==nbNETPDL_ID_EXPR_OPER_EQUAL) ? copro : m_CodeGen->UnOp(IR_NOTB,copro);
 		}
+		else if((Expression->Operator->OperatorType==nbNETPDL_ID_EXPR_OPER_GREAT)||(Expression->Operator->OperatorType==nbNETPDL_ID_EXPR_OPER_LESS))
+		{
+			subExpr2 = ParseOperandStr(Expression->Operand2);
+			if (subExpr2==NULL)
+			{
+				this->GenerateWarning(string("Operand '").append(string(Expression->Operand2->Token)).append("' cannot be evaluated"),
+					__FILE__, __FUNCTION__, __LINE__, 1, 5);
+				return NULL;
+			}
+
+			subExpr1 = ParseOperandStr(Expression->Operand1);
+			if (subExpr1==NULL)
+			{
+				this->GenerateWarning(string("Operand '").append(string(Expression->Operand1->Token)).append("' cannot be evaluated"),
+					__FILE__, __FUNCTION__, __LINE__, 1, 5);
+
+				return NULL;
+			}
+
+			// generate integer/boolean expression with integer/boolean operands
+			switch (Expression->Operator->OperatorType)
+			{
+				case nbNETPDL_ID_EXPR_OPER_GREAT:
+					return m_CodeGen->BinOp(IR_GTS, subExpr1, subExpr2);
+					break;
+
+				case nbNETPDL_ID_EXPR_OPER_LESS:
+					return m_CodeGen->BinOp(IR_LTS, subExpr1, subExpr2);
+					break;
+					
+				default:
+					nbASSERT(false,"cannot be here.. there is a bug :-(");
+			}
+		}
+		else
+			nbASSERT(false,"cannot be here.. there is a bug :-(");
 	}
 
 
 	return NULL;
 }
 
-Node *PDLParser::ParseExpressionStr(_nbNetPDLExprBase *expr)
+HIRNode *PDLParser::ParseExpressionStr(_nbNetPDLExprBase *expr)
 {
+
 	if (expr == NULL)
 		return NULL;
 
@@ -559,7 +587,7 @@ Node *PDLParser::ParseExpressionStr(_nbNetPDLExprBase *expr)
 /**** Parsing variables    ***************************************************/
 void PDLParser::ParseRTVarDecl(_nbNetPDLElementVariable *variable)
 {
-	Node *expression(0);
+	HIRNode *expression(0);
 
 	if (m_GlobalSymbols.LookUpVariable(variable->Name) != NULL)
 	{
@@ -585,7 +613,7 @@ void PDLParser::ParseRTVarDecl(_nbNetPDLElementVariable *variable)
 	}
 
 	SymbolVariable *var(0);
-	Node *varNode(0);
+	HIRNode *varNode(0);
 
 	switch(variable->VariableDataType)
 	{
@@ -666,7 +694,7 @@ void PDLParser::ParseRTVarDecl(_nbNetPDLElementVariable *variable)
 
 /*****************************************************************************/
 /**** Parsing operands     ***************************************************/
-Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
+HIRNode *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 {
 
 	if (expr == NULL)
@@ -692,7 +720,7 @@ Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 				return NULL;
 			}
 
-			Node *startAtExp(0), *sizeExp(0);
+			HIRNode *startAtExp(0), *sizeExp(0);
 
 			switch(varSym->VarType)
 			{
@@ -749,8 +777,8 @@ Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 
 					this->m_CurrProtoSym->VarTotOccurrences++;
 #endif
-
 					return m_CodeGen->TermNode(IR_SVAR, bufRefVar, startAtExp, sizeExp);
+
 				}break;
 			case PDL_RT_VAR_BUFFER:
 				//!\todo support buffer variables
@@ -776,6 +804,7 @@ Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 			_nbNetPDLExprFieldRef* operand = (_nbNetPDLExprFieldRef*)expr;
 
 			SymbolField *fieldSym = LookUpFieldSym(operand->FieldName);
+			
 			if (fieldSym == NULL)
 			{
 #ifdef STATISTICS
@@ -791,7 +820,7 @@ Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 				this->GenerateWarning(string("Operand '") + fieldSym->Name + string("' of padding type is not supported"), __FILE__, __FUNCTION__, __LINE__, 1, 5);
 				return NULL;
 			}
-			Node *startAtExp(0), *sizeExp(0);
+			HIRNode *startAtExp(0), *sizeExp(0);
 
 			if (operand->OffsetStartAt && operand->OffsetSize)
 			{
@@ -853,8 +882,8 @@ Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 		{
 			_nbNetPDLExprLookupTable *lookup=(_nbNetPDLExprLookupTable *)expr;
 
-			Node *offsetStart(0);
-			Node *offsetSize(0);
+			HIRNode *offsetStart(0);
+			HIRNode *offsetSize(0);
 
 			if (lookup->OffsetStartAt!=NULL && lookup->OffsetSize!=NULL)
 			{
@@ -880,7 +909,7 @@ Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 	case nbNETPDL_ID_EXPR_OPERAND_FUNCTION_CHANGEBYTEORDER:
 		{
 			struct _nbNetPDLExprFunctionChangeByteOrder* operand = (struct _nbNetPDLExprFunctionChangeByteOrder*)expr;
-			Node *toInvert = ParseExpressionStr(operand->OriginalStringExpression);
+			HIRNode *toInvert = ParseExpressionStr(operand->OriginalStringExpression);
 			return m_CodeGen->UnOp(IR_CHGBORD, toInvert);
 		}break;
 
@@ -896,7 +925,7 @@ Node *PDLParser::ParseOperandStr(struct _nbNetPDLExprBase *expr)
 	return NULL;
 }
 
-Node *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
+HIRNode *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
 {
 	nbASSERT(expr!=NULL, "Expression to parse should not be NULL.");
 
@@ -943,7 +972,7 @@ Node *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
 
 			// preload is required is the variable is a refbuffer
 			this->m_ConvertingToInt=true;
-			Node *irExpr = ParseOperandStr(operand->StringExpression);
+			HIRNode *irExpr = ParseOperandStr(operand->StringExpression);
 			this->m_ConvertingToInt=false;
 
 			if (irExpr == NULL)
@@ -967,7 +996,7 @@ Node *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
 		{
 			_nbParamsLinkedList *paramsList = ((_nbNetPDLExprFunctionCheckUpdateLookupTable *)expr)->ParameterList;
 			SymbolLookupTableKeysList *keys=new SymbolLookupTableKeysList();
-			Node *parExpr=NULL;
+			HIRNode *parExpr=NULL;
 			while (paramsList != NULL)
 			{
 				if (paramsList->Expression->ReturnType == nbNETPDL_ID_EXPR_RETURNTYPE_BUFFER)
@@ -1002,8 +1031,8 @@ Node *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
 		{
 			_nbNetPDLExprLookupTable *lookup=(_nbNetPDLExprLookupTable *)expr;
 
-			Node *offsetStart(0);
-			Node *offsetSize(0);
+			HIRNode *offsetStart(0);
+			HIRNode *offsetSize(0);
 
 			if (lookup->OffsetStartAt!=NULL && lookup->OffsetSize!=NULL)
 			{
@@ -1026,7 +1055,8 @@ Node *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
 		{
 //#ifdef USE_REGEX
 			struct _nbNetPDLExprFunctionRegExp *function = (struct _nbNetPDLExprFunctionRegExp *)expr;
-			Node *buffer = ParseExpressionStr(function->SearchBuffer);
+			
+			HIRNode *buffer = ParseExpressionStr(function->SearchBuffer);
 
 			int escapes=0;
 			int slashes=0;
@@ -1092,11 +1122,12 @@ Node *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
 
 			*p='\0';
 
+
 			SymbolStrConst *pattern = (SymbolStrConst *)m_CodeGen->ConstStrSymbol(string(convPattern));
 
 			free(convPattern);
 
-			SymbolRegEx *regExp = new SymbolRegEx(buffer, pattern, function->CaseSensitiveMatch, m_GlobalSymbols.GetRegExEntriesCount());
+			SymbolRegExPDL *regExp = new SymbolRegExPDL(buffer, pattern, function->CaseSensitiveMatch, m_GlobalSymbols.GetRegExEntriesCount());
 			m_GlobalSymbols.StoreRegExEntry(regExp);
 
 			return m_CodeGen->TermNode(IR_REGEXFND, regExp);
@@ -1125,16 +1156,16 @@ Node *PDLParser::ParseOperandInt(_nbNetPDLExprBase *expr)
 void PDLParser::ParseFieldDef(_nbNetPDLElementFieldBase *fieldElement)
 {
 	SymbolField *fieldSymbol(0);
-	Node *expression(0);
-	Node *beginoffexpression(0);
-	Node *endoffexpression(0);
-	Node *enddiscexpression(0);
+	HIRNode *expression(0);
+	HIRNode *beginoffexpression(0);
+	HIRNode *endoffexpression(0);
+	HIRNode *enddiscexpression(0);
+	
 #ifdef STATISTICS
 	this->m_CurrProtoSym->DeclaredFields++;
 	if (this->m_ParentUnionField!=NULL)
 		this->m_CurrProtoSym->InnerFields++;
 #endif
-
 	switch(fieldElement->FieldType)
 	{
 	case nbNETPDL_ID_FIELD_BIT:
@@ -1151,7 +1182,7 @@ void PDLParser::ParseFieldDef(_nbNetPDLElementFieldBase *fieldElement)
 	case nbNETPDL_ID_FIELD_FIXED:
 		{
 			_nbNetPDLElementFieldFixed *fieldFixed = (_nbNetPDLElementFieldFixed*)fieldElement;
-			fieldSymbol = new SymbolFieldFixed(fieldFixed->Name, fieldFixed->Size, fieldElement);
+			fieldSymbol = new SymbolFieldFixed(fieldFixed->Name, fieldFixed->Size, fieldElement);					
 			if (fieldSymbol == NULL)
 				throw ErrorInfo(ERR_FATAL_ERROR, "MEMORY ALLOCATION FAILURE");
 
@@ -1185,6 +1216,7 @@ void PDLParser::ParseFieldDef(_nbNetPDLElementFieldBase *fieldElement)
 				endoffexpression=ParseExpressionInt(fieldTokEnd->EndOffsetExprTree);
 			if(fieldTokEnd->EndDiscardExprTree!=NULL)
 				enddiscexpression=ParseExpressionInt(fieldTokEnd->EndDiscardExprTree);
+				
 			fieldSymbol=new SymbolFieldTokEnd(fieldTokEnd->Name, fieldTokEnd->EndTokenString,
 												fieldTokEnd->EndTokenStringSize,fieldTokEnd->EndOffsetExprString
 												,fieldElement,endoffexpression,enddiscexpression);
@@ -1385,7 +1417,7 @@ this->GenerateWarning("Type Field TokenWrapped Deprecated.", __FILE__, __FUNCTIO
 		//Store the field symbol into the field symbol tables
 		if (fieldSymbol->FieldType==PDL_FIELD_FIXED && nbNETPDL_GET_ELEMENT(m_ProtoDB, fieldElement->FirstChild)!=NULL)
 			// [ds] any bit container has a different definition, otherwise you have any bit defined in containers with the same name as they were defined in only a container
-			fieldSymbol = StoreFieldSym(fieldSymbol, true);
+			fieldSymbol = StoreFieldSym(fieldSymbol, true); 
 		else
 			fieldSymbol = StoreFieldSym(fieldSymbol);
 
@@ -1408,6 +1440,9 @@ this->GenerateWarning("Type Field TokenWrapped Deprecated.", __FILE__, __FUNCTIO
 		//Store the field symbol into the field symbol tables
 		m_ParentUnionField = (SymbolFieldContainer *)StoreFieldSym(m_ParentUnionField);
 		
+		// Add the protocol reference in the field Symbol
+		m_ParentUnionField->Protocol=m_CurrProtoSym;
+
 		// Add the protocol reference in the field Symbol
 		m_ParentUnionField->Protocol=m_CurrProtoSym;
 
@@ -1484,7 +1519,7 @@ this->GenerateWarning("Type Field TokenWrapped Deprecated.", __FILE__, __FUNCTIO
 				m_ParentUnionField=NULL;
 		}
 		//else
-		//	m_ParentUnionField=NULL;
+		//	m_ParentUnionFielexpr=ParseExpressionInt(key->ExprTree);//d=NULL;
 	}
 }
 
@@ -1494,8 +1529,8 @@ this->GenerateWarning("Type Field TokenWrapped Deprecated.", __FILE__, __FUNCTIO
 void PDLParser::ParseAssign(_nbNetPDLElementAssignVariable *assignElement)
 {
 	SymbolVariable *varSymbol(0);
-	Node *expression(0);
-	Node *assignNode(0);
+	HIRNode *expression(0);
+	HIRNode *assignNode(0);
 
 	varSymbol = m_GlobalSymbols.LookUpVariable(assignElement->VariableName);
 
@@ -1599,6 +1634,7 @@ void PDLParser::ParseAssign(_nbNetPDLElementAssignVariable *assignElement)
 
 /*****************************************************************************/
 /**** Parsing lookup tables     **********************************************/
+//Parses the NetPDL element <lookuptable>
 void PDLParser::ParseLookupTable(_nbNetPDLElementLookupTable *table)
 {
 	if (this->m_GlobalSymbols.LookUpLookupTable(table->Name)!=NULL)
@@ -1608,20 +1644,32 @@ void PDLParser::ParseLookupTable(_nbNetPDLElementLookupTable *table)
 	}
 
 	TableValidity validity=(table->AllowDynamicEntries) ? TABLE_VALIDITY_DYNAMIC : TABLE_VALIDITY_STATIC;
+	
+	//[icerrato]	
+	//SymbolLookupTable *symTable=new SymbolLookupTable(table->Name, validity, table->NumExactEntries, table->NumMaskEntries);
+	//if (symTable == NULL)
+	//	throw ErrorInfo(ERR_FATAL_ERROR, "MEMORY ALLOCATION FAILURE");
 
-	SymbolLookupTable *symTable=new SymbolLookupTable(table->Name, validity, table->NumExactEntries, table->NumMaskEntries);
-	if (symTable == NULL)
-		throw ErrorInfo(ERR_FATAL_ERROR, "MEMORY ALLOCATION FAILURE");
+	//[icerrato]
+	//Crates a new SymbolLookupTable
+	SymbolLookupTable *symTable = m_CodeGen->NewLookupTable(table->Name, validity, table->NumExactEntries, table->NumMaskEntries);
+	//generates an HIR statement to define the lookup table
+	HIRNode *tableNode = m_CodeGen->TermNode(IR_LKTABLE, symTable);	
+	m_CodeGen->GenStatement(m_CodeGen->UnOp(IR_LKDEFTABLE, tableNode));
 
+	//store the LookupTable into the GlobaSymbolsTable
 	this->m_GlobalSymbols.StoreLookupTable(table->Name, symTable);
-
-	// add keys
+	
+	//add keys
 	SymbolLookupTableItem *keyDescriptor=NULL;
 	_nbNetPDLElementKeyData *key = table->FirstKey;
-	while (key!=NULL)
+	while (key!=NULL)//iterates on the <key> elements
 	{
 		PDLVariableType type;
-
+		
+		//[icerrato]
+		HIRNode *keyNode(0);
+		
 		switch (key->KeyDataType)
 		{
 		case nbNETPDL_LOOKUPTABLE_KEYANDDATA_TYPE_NUMBER:
@@ -1637,8 +1685,25 @@ void PDLParser::ParseLookupTable(_nbNetPDLElementLookupTable *table)
 			nbASSERT(false, "CANNOT BE HERE");
 			break;
 		}
-		keyDescriptor=new SymbolLookupTableItem(symTable, key->Name, type, key->Size);
-
+		
+		//[icerrato]
+		keyDescriptor= m_CodeGen->NewLookupTableItem(symTable, key->Name, type, key->Size);			
+		//keyDescriptor=new SymbolLookupTableItem(symTable, key->Name, type, key->Size);
+	
+		
+		//[icerrato]
+		if(type!=PDL_RT_VAR_BUFFER){
+			keyNode = m_CodeGen->TermNode(IR_LKIKEY, keyDescriptor);
+			//generates an HIR statement about an integer or a protocol key
+			m_CodeGen->GenStatement(m_CodeGen->UnOp(IR_LKDEFKEYI, keyNode/*, expression*/));
+		}
+		else{
+			//type == PDL_RT_VAR_BUFFER
+			keyNode = m_CodeGen->TermNode(IR_LKSKEY, keyDescriptor);		
+			//generates an HIR statement about a buffer key
+			m_CodeGen->GenStatement(m_CodeGen->UnOp(IR_LKDEFKEYS, keyNode));
+		}
+		
 		symTable->AddKey(keyDescriptor);
 
 		key = key->NextKeyData;
@@ -1648,9 +1713,12 @@ void PDLParser::ParseLookupTable(_nbNetPDLElementLookupTable *table)
 	// add values
 	SymbolLookupTableItem *valueDescriptor=NULL;
 	_nbNetPDLElementKeyData *data = table->FirstData;
-	while (data!=NULL)
+	while (data!=NULL)//iterates on the <data> elements
 	{
 		PDLVariableType type;
+		
+		//[icerrato]
+		HIRNode *keyNode(0);
 
 		switch (data->KeyDataType)
 		{
@@ -1667,7 +1735,23 @@ void PDLParser::ParseLookupTable(_nbNetPDLElementLookupTable *table)
 			nbASSERT(false, "CANNOT BE HERE");
 			break;
 		}
-		valueDescriptor=new SymbolLookupTableItem(symTable, data->Name, type, data->Size);
+		
+		//[icerrato]
+		valueDescriptor= m_CodeGen->NewLookupTableItem(symTable, data->Name, type, data->Size);
+		//valueDescriptor=new SymbolLookupTableItem(symTable, data->Name, type, data->Size);
+		
+		//[icerrato]
+		if(type!=PDL_RT_VAR_BUFFER){
+			keyNode = m_CodeGen->TermNode(IR_LKIDATA, valueDescriptor);
+			//generates an HIR statement about an integer or a protocol data
+			m_CodeGen->GenStatement(m_CodeGen->UnOp(IR_LKDEFDATAI, keyNode/*, expression*/));
+		}
+		else{
+			//type == PDL_RT_VAR_BUFFER
+			keyNode = m_CodeGen->TermNode(IR_LKSDATA, valueDescriptor);		
+			//generates an HIR statement about a buffer data
+			m_CodeGen->GenStatement(m_CodeGen->UnOp(IR_LKDEFDATAS, keyNode));
+		}
 
 		symTable->AddValue(valueDescriptor);
 
@@ -1679,7 +1763,7 @@ void PDLParser::ParseLookupTable(_nbNetPDLElementLookupTable *table)
 #endif
 }
 
-Node *PDLParser::ParseLookupTableSelect(uint16 op, string tableName, SymbolLookupTableKeysList *keys)
+HIRNode *PDLParser::ParseLookupTableSelect(HIROpcodes op, string tableName, SymbolLookupTableKeysList *keys)
 {
 	SymbolLookupTable *symTable = this->m_GlobalSymbols.LookUpLookupTable(tableName);
 
@@ -1764,7 +1848,7 @@ void PDLParser::ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *elemen
 			SymbolLookupTableItemsList_t::iterator keyIterator = symTable->KeysList.begin();
 			while (key!=NULL && keyIterator!=symTable->KeysList.end())
 			{
-				Node *expr = NULL;
+				HIRNode *expr = NULL;
 
 				switch ((*keyIterator)->Type)
 				{
@@ -1805,7 +1889,7 @@ void PDLParser::ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *elemen
 			SymbolLookupTableItemsList_t::iterator valueIterator = symTable->ValuesList.begin();
 			while (data!=NULL && valueIterator!=symTable->ValuesList.end())
 			{
-				Node *expr = NULL;
+				HIRNode *expr = NULL;
 				switch ((*valueIterator)->Type)
 				{
 				case PDL_RT_VAR_BUFFER:
@@ -1828,6 +1912,7 @@ void PDLParser::ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *elemen
 #endif
 					this->GenerateWarning(string("The value expression '").append(data->ExprString).append("' to add to the lookup table '").append(symTable->Name).append("'has not been resolved correctly."),
 						__FILE__, __FUNCTION__, __LINE__, 1, 4);
+
 					return;
 				}
 
@@ -1854,7 +1939,7 @@ void PDLParser::ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *elemen
 			// select the entry
 			_nbNetPDLElementLookupKeyData *paramsList = element->FirstKey;
 			SymbolLookupTableKeysList *keys=new SymbolLookupTableKeysList();
-			Node *parExpr=NULL;
+			HIRNode *parExpr=NULL;
 			while (paramsList != NULL)
 			{
 				if (paramsList->ExprTree->ReturnType == nbNETPDL_ID_EXPR_RETURNTYPE_BUFFER)
@@ -1880,7 +1965,7 @@ void PDLParser::ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *elemen
 				paramsList = paramsList->NextKeyData;
 			}
 
-			Node *selection=ParseLookupTableSelect(IR_LKSEL, element->TableName, keys);
+			HIRNode *selection=ParseLookupTableSelect(IR_LKSEL, element->TableName, keys);
 			if (selection==NULL)
 			{
 				this->GenerateWarning(string("The keys list to delete an entry from the lookup table '").append(symTable->Name).append("' has not been resolved correctly."),
@@ -1897,8 +1982,8 @@ void PDLParser::ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *elemen
 			{
 				if (symTable->Validity==TABLE_VALIDITY_DYNAMIC)
 				{
-					Node *offsetNode = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(symTable->GetHiddenValueOffset(HIDDEN_LIFESPAN_INDEX)));
-					Node *newValueNode = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(180));
+					HIRNode *offsetNode = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(symTable->GetHiddenValueOffset(HIDDEN_LIFESPAN_INDEX)));
+					HIRNode *newValueNode = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(180));
 					m_CodeGen->GenStatement(m_CodeGen->TermNode(IR_LKUPDI, symTable, offsetNode, newValueNode));
 				}
 				else
@@ -1920,7 +2005,7 @@ void PDLParser::ParseLookupTableUpdate(_nbNetPDLElementUpdateLookupTable *elemen
 #endif
 }
 
-Node *PDLParser::ParseLookupTableItem(string tableName, string itemName, Node *offsetStart, Node *offsetSize)
+HIRNode *PDLParser::ParseLookupTableItem(string tableName, string itemName, HIRNode *offsetStart, HIRNode *offsetSize)
 {
 	SymbolLookupTable *symTable = this->m_GlobalSymbols.LookUpLookupTable(tableName);
 	if (symTable==NULL)
@@ -1938,15 +2023,15 @@ Node *PDLParser::ParseLookupTableItem(string tableName, string itemName, Node *o
 	}
 
 	// load the item value
-	Node *field = m_CodeGen->TermNode(IR_SVAR, item, offsetStart, offsetSize);
+	HIRNode *field = m_CodeGen->TermNode(IR_SVAR, item, offsetStart, offsetSize);
 
 	return field;
 }
-
+/*
 void PDLParser::ParseLookupTableAssign(_nbNetPDLElementAssignLookupTable *element)
 {
-	Node *offsetStartNode(0);
-	Node *offsetSizeNode(0);
+	HIRNode *offsetStartNode(0);
+	HIRNode *offsetSizeNode(0);
 	if (element->OffsetStartAt!=0 && element->OffsetSize!=0)
 	{
 		offsetStartNode=m_CodeGen->TermNode(IR_ICONST, element->OffsetStartAt);
@@ -1969,12 +2054,12 @@ void PDLParser::ParseLookupTableAssign(_nbNetPDLElementAssignLookupTable *elemen
 	}
 
 	// load the item offset
-	Node *field = m_CodeGen->TermNode(PUSH, m_CodeGen->ConstIntSymbol(symTable->GetValueOffset(item->Name)));
+	HIRNode *field = m_CodeGen->TermNode(PUSH, m_CodeGen->ConstIntSymbol(symTable->GetValueOffset(item->Name))); //[icerrato] PUSH is not a valid HIR opcode!
 
 	// TODO offset
 
-	Node *expr = NULL;
-	Node *assign = NULL;
+	HIRNode *expr = NULL;
+	HIRNode *assign = NULL;
 	if (element->ExprTree->ReturnType==nbNETPDL_ID_EXPR_RETURNTYPE_BUFFER)
 	{
 		expr=ParseExpressionStr(element->ExprTree);
@@ -2011,7 +2096,7 @@ void PDLParser::ParseLookupTableAssign(_nbNetPDLElementAssignLookupTable *elemen
 #ifdef STATISTICS
 	this->m_CurrProtoSym->LookupOccurrences++;
 #endif
-}
+}*/
 
 
 /*****************************************************************************/
@@ -2039,7 +2124,7 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 			*/
 
 			//loop expression
-			Node *expr = ParseExpressionInt(loopElement->ExprTree);
+			HIRNode *expr = ParseExpressionInt(loopElement->ExprTree);
 			//if cannot parse the expression return!
 			if (expr == NULL)
 			{
@@ -2053,15 +2138,17 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 				return;
 			}
 
+
 			//$loop_N_sent variable
 			SymbolVarInt *sentinel = m_CodeGen->NewIntVar(loopID + string("_sent"));
 			//$currentoffset + size_expr
-			Node *sum = m_CodeGen->BinOp(IR_ADDI, m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym), expr);
+			HIRNode *sum = m_CodeGen->BinOp(IR_ADDI, m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym), expr);
 			//$loop_N_sent = $currentoffset + size_expr
 			m_CodeGen->GenStatement(m_CodeGen->BinOp(IR_ASGNI, m_CodeGen->TermNode(IR_IVAR, sentinel), sum));
 			//while condition: $currentoffset < $loop_N_sent
-			Node *condition = m_CodeGen->BinOp(IR_LTI, m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym), \
+			HIRNode *condition = m_CodeGen->BinOp(IR_LTI, m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym), \
 				m_CodeGen->TermNode(IR_IVAR, sentinel));
+
 
 			StmtWhile *whileStmt = m_CodeGen->WhileDoStatement(condition);
 
@@ -2075,7 +2162,7 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 #endif
 
 			//EnterFldScope();
-			IRCodeGen whileBodyCodeGen(m_GlobalSymbols, whileStmt->Code->Code);
+			HIRCodeGen whileBodyCodeGen(m_GlobalSymbols, whileStmt->Code->Code);
 			ChangeCodeGen(whileBodyCodeGen);
 			ParseElements(nbNETPDL_GET_ELEMENT(m_ProtoDB, loopElement->FirstChild));
 			RestoreCodeGen();
@@ -2104,13 +2191,13 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 			//$loop_N_cnt
 			SymbolVarInt *index = m_CodeGen->NewIntVar(loopID + "_cnt");
 
-			Node *condition = m_CodeGen->BinOp(IR_GTI, m_CodeGen->TermNode(IR_IVAR, index), \
+			HIRNode *condition = m_CodeGen->BinOp(IR_GTI, m_CodeGen->TermNode(IR_IVAR, index), \
 				m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(0)));
-			Node *sub = m_CodeGen->BinOp(IR_SUBI, m_CodeGen->TermNode(IR_IVAR, index), m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(1)));
+			HIRNode *sub = m_CodeGen->BinOp(IR_SUBI, m_CodeGen->TermNode(IR_IVAR, index), m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(1)));
 			StmtGen *indexDecStmt = new StmtGen(m_CodeGen->BinOp(IR_ASGNI, m_CodeGen->TermNode(IR_IVAR, index), sub));
 			CHECK_MEM_ALLOC(indexDecStmt);
 			//loop expression
-			Node *expr = ParseExpressionInt(loopElement->ExprTree);
+			HIRNode *expr = ParseExpressionInt(loopElement->ExprTree);
 			//if cannot parse the expression return!
 			if (expr == NULL)
 			{
@@ -2127,7 +2214,7 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 
 			//code for inner elements
 			//EnterFldScope();
-			IRCodeGen loopBodyCodeGen(m_GlobalSymbols,loopStmt->Code->Code);
+			HIRCodeGen loopBodyCodeGen(m_GlobalSymbols,loopStmt->Code->Code);
 			ChangeCodeGen(loopBodyCodeGen);
 			ParseElements(nbNETPDL_GET_ELEMENT(m_ProtoDB, loopElement->FirstChild));
 			RestoreCodeGen();
@@ -2147,7 +2234,7 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 			}
 			*/
 			//loop expression
-			Node *expr = ParseExpressionInt(loopElement->ExprTree);
+			HIRNode *expr = ParseExpressionInt(loopElement->ExprTree);
 			//if cannot parse the expression return!
 			if (expr == NULL)
 			{
@@ -2162,7 +2249,7 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 			}
 			StmtWhile *whileStmt = m_CodeGen->WhileDoStatement(expr);
 			//EnterFldScope();
-			IRCodeGen whileBodyCodeGen(m_GlobalSymbols, whileStmt->Code->Code);
+			HIRCodeGen whileBodyCodeGen(m_GlobalSymbols, whileStmt->Code->Code);
 			ChangeCodeGen(whileBodyCodeGen);
 			ParseElements(nbNETPDL_GET_ELEMENT(m_ProtoDB, loopElement->FirstChild));
 			RestoreCodeGen();
@@ -2186,12 +2273,12 @@ void PDLParser::ParseLoop(_nbNetPDLElementLoop *loopElement)
 			//we have first to parse the code inside the loop and then evaluate the expression
 			StmtWhile *whileStmt = m_CodeGen->DoWhileStatement(NULL);
 			//EnterFldScope();
-			IRCodeGen whileBodyCodeGen(m_GlobalSymbols, whileStmt->Code->Code);
+			HIRCodeGen whileBodyCodeGen(m_GlobalSymbols, whileStmt->Code->Code);
 			ChangeCodeGen(whileBodyCodeGen);
 			ParseElements(nbNETPDL_GET_ELEMENT(m_ProtoDB, loopElement->FirstChild));
 			RestoreCodeGen();
 			//loop expression
-			Node *expr = ParseExpressionInt(loopElement->ExprTree);
+			HIRNode *expr = ParseExpressionInt(loopElement->ExprTree);
 			//if cannot parse the expression return!
 			if (expr == NULL)
 			{
@@ -2240,7 +2327,7 @@ void PDLParser::ParseIf(_nbNetPDLElementIf *ifElement)
 {
 	this->m_CodeGen->CommentStatement(string("IF '").append(ifElement->ExprString).append("'"));
 
-	Node *expr = ParseExpressionInt(ifElement->ExprTree);
+	HIRNode *expr = ParseExpressionInt(ifElement->ExprTree);
 
 	if (expr == NULL)
 	{
@@ -2261,7 +2348,7 @@ void PDLParser::ParseIf(_nbNetPDLElementIf *ifElement)
 		StmtIf *ifStmt = m_CodeGen->IfStatement(expr);
 
 		//EnterFldScope();
-		IRCodeGen branchCodeGen(m_GlobalSymbols, ifStmt->TrueBlock->Code);
+		HIRCodeGen branchCodeGen(m_GlobalSymbols, ifStmt->TrueBlock->Code);
 		ChangeCodeGen(branchCodeGen);
 
 		// parse and generate code for true branch
@@ -2275,7 +2362,7 @@ void PDLParser::ParseIf(_nbNetPDLElementIf *ifElement)
 		{
 			// parse and generate code for false branch
 			//EnterFldScope();
-			IRCodeGen branchCodeGen(m_GlobalSymbols, ifStmt->FalseBlock->Code);
+			HIRCodeGen branchCodeGen(m_GlobalSymbols, ifStmt->FalseBlock->Code);
 			ChangeCodeGen(branchCodeGen);
 
 			this->m_CodeGen->CommentStatement(string("IF: FALSE"));
@@ -2306,6 +2393,7 @@ void PDLParser::ParseIf(_nbNetPDLElementIf *ifElement)
 
 /*****************************************************************************/
 /**** Parsing switch     *****************************************************/
+
 void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 {
 
@@ -2326,7 +2414,7 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 
 	this->m_CodeGen->CommentStatement(string("SWITCH '").append(switchElement->ExprString).append("'"));
 
-	Node *switchExpr = ParseExpressionInt(switchElement->ExprTree);
+	HIRNode *switchExpr = ParseExpressionInt(switchElement->ExprTree);
 
 	if (switchExpr==NULL)
 	{
@@ -2343,7 +2431,8 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 
 	//First generate the code for the cases with ranged values
 	while (caseElement)
-	{
+	{	
+	
 		if (caseElement->FirstChild == 0)
 		{
 			caseElement = caseElement->NextCase;
@@ -2383,19 +2472,19 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 			if (swTemp == NULL)
 			{
 				swTemp = m_CodeGen->NewIntVar(switchID);
-				Node *tempNode = m_CodeGen->TermNode(IR_IVAR, swTemp);
+				HIRNode *tempNode = m_CodeGen->TermNode(IR_IVAR, swTemp);
 				m_CodeGen->GenStatement(m_CodeGen->BinOp(IR_ASGNI, tempNode, switchExpr));
 			}
 			Symbol *lowerLimit = m_CodeGen->ConstIntSymbol(caseElement->ValueNumber);
 			Symbol *upperLimit = m_CodeGen->ConstIntSymbol(caseElement->ValueMaxNumber);
-			Node *geExpr = m_CodeGen->BinOp(IR_GEI, m_CodeGen->TermNode(IR_IVAR, swTemp), m_CodeGen->TermNode(IR_ICONST, lowerLimit));
-			Node *leExpr = m_CodeGen->BinOp(IR_LEI, m_CodeGen->TermNode(IR_IVAR, swTemp), m_CodeGen->TermNode(IR_ICONST, upperLimit));
-			Node *expr = m_CodeGen->BinOp(IR_ANDB, geExpr, leExpr);
+			HIRNode *geExpr = m_CodeGen->BinOp(IR_GEI, m_CodeGen->TermNode(IR_IVAR, swTemp), m_CodeGen->TermNode(IR_ICONST, lowerLimit));
+			HIRNode *leExpr = m_CodeGen->BinOp(IR_LEI, m_CodeGen->TermNode(IR_IVAR, swTemp), m_CodeGen->TermNode(IR_ICONST, upperLimit));
+			HIRNode *expr = m_CodeGen->BinOp(IR_ANDB, geExpr, leExpr);
 
 			StmtIf *ifStmt = m_CodeGen->IfStatement(expr);
 			//code for inner elements
 			//EnterFldScope();
-			IRCodeGen trueBrCodeGen(m_GlobalSymbols, ifStmt->TrueBlock->Code);
+			HIRCodeGen trueBrCodeGen(m_GlobalSymbols, ifStmt->TrueBlock->Code);
 			ChangeCodeGen(trueBrCodeGen);
 
 			ParseElements(nbNETPDL_GET_ELEMENT(m_ProtoDB, caseElement->FirstChild));
@@ -2403,9 +2492,10 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 			trueBrCodeGen.JumpStatement(swExit);
 			RestoreCodeGen();
 			//ExitFldScope();
-			IRCodeGen falseBrCodeGen(m_GlobalSymbols, ifStmt->FalseBlock->Code);
+			HIRCodeGen falseBrCodeGen(m_GlobalSymbols, ifStmt->FalseBlock->Code);
 			falseBrCodeGen.JumpStatement(swStart);
 		}
+	
 		caseElement = caseElement->NextCase;
 	}
 
@@ -2416,7 +2506,7 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 	if (swStart != NULL)
 		m_CodeGen->LabelStatement(swStart);
 
-	StmtSwitch *swStmt = m_CodeGen->SwitchStatement(switchExpr);
+	HIRStmtSwitch *swStmt = m_CodeGen->SwitchStatement(switchExpr);
 	swStmt->SwExit = swExit;
 
 	//m_CodeGen->LabelStatement(swExit);
@@ -2450,9 +2540,9 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 
 		if (caseElement->FirstChild != 0 && !caseElement->ValueMaxNumber)
 		{
-			Node *constVal = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(caseElement->ValueNumber));
+			HIRNode *constVal = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(caseElement->ValueNumber));
 			StmtCase *caseStmt = m_CodeGen->CaseStatement(swStmt, constVal);
-			IRCodeGen caseCodeGen(m_GlobalSymbols, caseStmt->Code->Code);
+			HIRCodeGen caseCodeGen(m_GlobalSymbols, caseStmt->Code->Code);
 			//generate the code for the current case
 			//EnterFldScope();
 			ChangeCodeGen(caseCodeGen);
@@ -2483,7 +2573,7 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 	if (switchElement->DefaultCase)
 	{
 		StmtCase *defaultCaseStmt = m_CodeGen->DefaultStatement(swStmt);
-		IRCodeGen caseCodeGen(m_GlobalSymbols, defaultCaseStmt->Code->Code);
+		HIRCodeGen caseCodeGen(m_GlobalSymbols, defaultCaseStmt->Code->Code);
 		//generate the code for the current case
 		//EnterFldScope();
 		ChangeCodeGen(caseCodeGen);
@@ -2503,7 +2593,7 @@ void PDLParser::ParseSwitch(_nbNetPDLElementSwitch *switchElement)
 
 /*****************************************************************************/
 /**** Parsing protocols     **************************************************/
-void PDLParser::ParseStartProto(IRCodeGen &IRCodeGen, bool visitEncap)
+void PDLParser::ParseStartProto(HIRCodeGen &IRCodeGen, bool visitEncap)
 {
 	ParseProtocol(*m_GlobalInfo->GetStartProtoSym(), IRCodeGen, visitEncap);
 
@@ -2516,8 +2606,9 @@ void PDLParser::ParseStartProto(IRCodeGen &IRCodeGen, bool visitEncap)
 		throw ErrorInfo(ERR_FATAL_ERROR, "variable $packet not found!!!");
 }
 
-void PDLParser::ParseProtocol(SymbolProto &protoSymbol, IRCodeGen &irCodeGen, bool visitEncap)
+void PDLParser::ParseProtocol(SymbolProto &protoSymbol, HIRCodeGen &irCodeGen, bool visitEncap)
 {
+
 	m_CurrProtoSym = &protoSymbol;
 
 	this->GenerateInfo(string("Parsing protocol '").append(protoSymbol.Name).append("'"),
@@ -2531,6 +2622,11 @@ void PDLParser::ParseProtocol(SymbolProto &protoSymbol, IRCodeGen &irCodeGen, bo
 	GenProtoEntryCode(protoSymbol);
 
 	_nbNetPDLElementProto *protoElement = protoSymbol.Info;
+	
+#if 0
+	if(protoElement->FirstExecuteVerify) //[icerrato] needed to identify application layer protocols
+		protoSymbol.hasVerify=true;
+#endif
 
 	//m_CurrentParsingSection = PARSING_SECTION_INIT;
 
@@ -2542,16 +2638,17 @@ void PDLParser::ParseProtocol(SymbolProto &protoSymbol, IRCodeGen &irCodeGen, bo
 
 		SymbolVariable *var = m_CodeGen->NewIntVar("$resolved_candidate_id", VAR_VALID_THISPKT);
 		uint32 initValue = 0;
-		Node *expression = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(initValue));
-		Node *varNode = m_CodeGen->TermNode(IR_IVAR, var);
+		HIRNode *expression = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(initValue));
+		HIRNode *varNode = m_CodeGen->TermNode(IR_IVAR, var);
 		m_CodeGen->GenStatement(m_CodeGen->BinOp(IR_DEFVARI, varNode, expression));
 	}
 
 	while (false)
+
 	{
 		// just visit the verify section to know if it's supported or not
 		CodeList *dummyCode = m_GlobalSymbols.NewCodeList(true);
-		IRCodeGen dummyCodeGen(m_GlobalSymbols, dummyCode);
+		HIRCodeGen dummyCodeGen(m_GlobalSymbols, dummyCode);
 		ChangeCodeGen(dummyCodeGen);
 
 		bool isSupported = m_CurrProtoSym->IsSupported;
@@ -2591,20 +2688,21 @@ void PDLParser::ParseProtocol(SymbolProto &protoSymbol, IRCodeGen &irCodeGen, bo
 
 	protoSymbol.FirstExecuteBefore = protoElement->FirstExecuteBefore;
 
-	if (protoElement->FirstExecuteBefore)
-	{
-#ifdef EXEC_BEFORE_AS_SOON_AS_FOUND
+//	if ((protoElement->FirstExecuteBefore)&&(&protoSymbol != m_GlobalInfo->GetStartProtoSym()))
+//	{
+/*#ifdef EXEC_BEFORE_AS_SOON_AS_FOUND  [icerrato]
 		if (&protoSymbol == m_GlobalInfo->GetStartProtoSym())
 #endif
-		{
-			this->GenerateInfo(string("Parsing 'execute' (before) section"), __FILE__, __FUNCTION__, __LINE__, 2, 3);
-			m_CodeGen->CommentStatement("Execute before section");
-			ParseExecSection(protoElement->FirstExecuteBefore);
-#ifndef EXEC_BEFORE_AS_SOON_AS_FOUND
+		{*/
+		//each protocol, except start proto, can have a "before" section
+//			this->GenerateInfo(string("Parsing 'execute' (before) section"), __FILE__, __FUNCTION__, __LINE__, 2, 3);
+//			m_CodeGen->CommentStatement("Execute before section");
+//			ParseExecSection(protoElement->FirstExecuteBefore);
+/*#ifndef EXEC_BEFORE_AS_SOON_AS_FOUND [icerrato]
 			m_CurrProtoSym->BeforeSectionSupported=(m_CurrProtoSym->IsSupported | m_CurrProtoSym->IsDefined);
 #endif
-		}
-	}
+		}*/
+//	}
 
 	this->GenerateInfo(string("Parsing fields"), __FILE__, __FUNCTION__, __LINE__, 2, 3);
 	// Reset the not defined flag for inner elements
@@ -2650,6 +2748,7 @@ void PDLParser::ParseProtocol(SymbolProto &protoSymbol, IRCodeGen &irCodeGen, bo
 
 	this->GenerateInfo(string("Parsed protocol '").append(protoSymbol.Name).append("'"),
 		__FILE__, __FUNCTION__, __LINE__, 2, 3);
+		
 }
 
 void PDLParser::ParseNextProto(_nbNetPDLElementNextProto *element)
@@ -2691,31 +2790,31 @@ void PDLParser::ParseNextProto(_nbNetPDLElementNextProto *element)
 
 #ifdef EXEC_BEFORE_AS_SOON_AS_FOUND
 		// execute before
-		ParseExecBefore(*nextPSym, m_FilterInfo->SubGraph, m_FilterInfo->FilterFalse, *m_CodeGen);
+		ParseExecBefore(*nextPSym, m_FilterInfo->fsa, m_FilterInfo->FilterFalse, m_FilterInfo->FilterTrue, *m_CodeGen);
 #endif
 
-		nbASSERT(m_ProtoGraph->GetNode(m_CurrProtoSym) != NULL, "NULL ProtoGraph Node");
-		nbASSERT(m_ProtoGraph->GetNode(nextPSym) != NULL, "NULL ProtoGraph Node");
-		//check if the edge is inside the filter subgraph
-		EncapGraph::GraphNode *nodeMapFrom = m_FilterInfo->SubGraph.GetNodeMap(*m_ProtoGraph->GetNode(m_CurrProtoSym));
-		nbASSERT(nodeMapFrom != NULL, "the current protocol node should have a mapping into the filtersubgraph");
-		EncapGraph::GraphNode *nodeMapTo = m_FilterInfo->SubGraph.GetNodeMap(*m_ProtoGraph->GetNode(nextPSym));
-		if (nodeMapTo != NULL)
+                // is nextPSym a protocol that is specified by a non-complemented-set transition exiting from the active state?
+		std::map <string, SymbolLabel*>::iterator iter = m_toStateProtoMap.find(nextPSym->Name);
+		if (iter != m_toStateProtoMap.end())
 		{
-			if (m_FilterInfo->SubGraph.HasEdge(*nodeMapFrom, *nodeMapTo))
-			{
-				m_CodeGen->JumpStatement(m_GlobalSymbols.GetProtoStartLbl(nextPSym));
-				return;
-			}
+                  // .. it is!
+                  m_CodeGen->JumpStatement((*iter).second);
+                  
 		}
-		m_CodeGen->JumpStatement(m_FilterInfo->FilterFalse);
+		else
+		{
+                  std::map <string, SymbolLabel*>::iterator it = m_toStateProtoMap.find(LAST_RESORT_JUMP);
+                  nbASSERT(it != m_toStateProtoMap.end(), "LAST_RESORT_JUMP undefined. Is your FSA completely specified?");
+                  m_CodeGen->JumpStatement((*it).second);
+		}
+
 	}
 	else
 	{
 		// try to solve the indirect reference
 		m_CodeGen->CommentStatement("Indirect protocol reference");
 
-		Node *indirectProtoRef = ParseExpressionInt(element->ExprTree);
+		HIRNode *indirectProtoRef = ParseExpressionInt(element->ExprTree);
 		nbASSERT(indirectProtoRef!=NULL, "Indirect protocol reference unknown");
 
 		SymbolVariable *candidate = m_GlobalSymbols.LookUpVariable(string("$resolved_candidate_id"));
@@ -2768,27 +2867,29 @@ void PDLParser::ParseNextProtoCandidate(_nbNetPDLElementNextProto *element)
 	if (nextPSym->Info->FirstExecuteVerify)
 	{
 
+		/*
 #ifndef PARSE_NOT_ONLY_SPECIFIED_PROTOCOL
 		EncapGraph::GraphNode *nodeMapFrom = m_FilterInfo->SubGraph.GetNodeMap(*m_ProtoGraph->GetNode(m_CurrProtoSym));
 		EncapGraph::GraphNode *nodeMapTo = m_FilterInfo->SubGraph.GetNodeMap(*m_ProtoGraph->GetNode(nextPSym));
 		if (nodeMapTo != NULL && m_FilterInfo->SubGraph.HasEdge(*nodeMapFrom, *nodeMapTo))
 #endif
+		*/
 		{
 #ifdef VERIFY_ONLY_WITH_PAYLOAD
-			Node *pktLengthEqZero = m_CodeGen->BinOp(IR_EQI,
+			HIRNode *pktLengthEqZero = m_CodeGen->BinOp(IR_EQI,
 				m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$packetlength")),
 				m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(0)));
-			Node *offLowerPBL = m_CodeGen->BinOp(IR_LTI,
+			HIRNode *offLowerPBL = m_CodeGen->BinOp(IR_LTI,
 				m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym),
 				m_CodeGen->TermNode(IR_IVAR,m_CodeGen->NewIntVar("$pbl")));
-			Node *offLowerPktLength = m_CodeGen->BinOp(IR_LTI,
+			HIRNode *offLowerPktLength = m_CodeGen->BinOp(IR_LTI,
 				m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym),
 				m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$packetlength")));
 
 			StmtIf *ifPayload = m_CodeGen->IfStatement(
 				m_CodeGen->BinOp(IR_ORB, m_CodeGen->BinOp(IR_ANDB, pktLengthEqZero, offLowerPBL), offLowerPktLength));
 
-			IRCodeGen ifPayloadCode(m_GlobalSymbols, ifPayload->TrueBlock->Code);
+			HIRCodeGen ifPayloadCode(m_GlobalSymbols, ifPayload->TrueBlock->Code);
 			ChangeCodeGen(ifPayloadCode);
 #endif
 
@@ -2824,27 +2925,27 @@ void PDLParser::CheckVerifyResult(uint32 nextProtoID)
 {
 	SymbolVariable *protoVerifyResult = m_GlobalSymbols.LookUpVariable(string("$protoverify_result"));
 
-	Node *protoFound = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_FOUND));
-	Node *protoCandidate = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_CANDIDATE));
-	Node *protoDeferred = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_DEFERRED));
-	Node *checkFound = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), protoFound);
-	Node *checkCandidate = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), protoCandidate);
-	Node *checkDeferred = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), protoDeferred);
+	HIRNode *protoFound = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_FOUND));
+	HIRNode *protoCandidate = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_CANDIDATE));
+	HIRNode *protoDeferred = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_DEFERRED));
+	HIRNode *checkFound = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), protoFound);
+	HIRNode *checkCandidate = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), protoCandidate);
+	HIRNode *checkDeferred = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), protoDeferred);
 
-	Node *exprCandidate = m_CodeGen->BinOp(IR_ORB, m_CodeGen->BinOp(IR_ORB, checkFound, checkCandidate), checkDeferred);
+	HIRNode *exprCandidate = m_CodeGen->BinOp(IR_ORB, m_CodeGen->BinOp(IR_ORB, checkFound, checkCandidate), checkDeferred);
 
-	Node *valueFound = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_FOUND));
-	Node *exprFound = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), valueFound);
+	HIRNode *valueFound = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_FOUND));
+	HIRNode *exprFound = m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, protoVerifyResult), valueFound);
 
 	StmtIf *ifProtoCandidate = m_CodeGen->IfStatement(exprCandidate);
 	{
-		IRCodeGen ifProtoCandidateCode(m_GlobalSymbols, ifProtoCandidate->TrueBlock->Code);
+		HIRCodeGen ifProtoCandidateCode(m_GlobalSymbols, ifProtoCandidate->TrueBlock->Code);
 		ChangeCodeGen(ifProtoCandidateCode);
 
 		// if the protocol is candidate...
 		StmtIf *ifProtoFound = m_CodeGen->IfStatement(exprFound);
 		{
-			IRCodeGen ifProtoFoundCode(m_GlobalSymbols, ifProtoFound->TrueBlock->Code);
+			HIRCodeGen ifProtoFoundCode(m_GlobalSymbols, ifProtoFound->TrueBlock->Code);
 			ChangeCodeGen(ifProtoFoundCode);
 
 			// if $protoverify_result == FOUND then set candidate id and go to the candidates resolution section
@@ -2858,12 +2959,12 @@ void PDLParser::CheckVerifyResult(uint32 nextProtoID)
 
 			RestoreCodeGen();
 
-			IRCodeGen ifProtoNotFoundCode(m_GlobalSymbols, ifProtoFound->FalseBlock->Code);
+			HIRCodeGen ifProtoNotFoundCode(m_GlobalSymbols, ifProtoFound->FalseBlock->Code);
 			ChangeCodeGen(ifProtoNotFoundCode);
 
 			StmtIf *ifCandidateNotSet = m_CodeGen->IfStatement(m_CodeGen->BinOp(IR_EQI, m_CodeGen->TermNode(IR_IVAR, candidate), m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol((uint32)-1))));
 			{
-				IRCodeGen ifCandidateNotSetCode(m_GlobalSymbols, ifCandidateNotSet->TrueBlock->Code);
+				HIRCodeGen ifCandidateNotSetCode(m_GlobalSymbols, ifCandidateNotSet->TrueBlock->Code);
 				ChangeCodeGen(ifCandidateNotSetCode);
 
 				// if $protoverify_result != FOUND then set candidate id only if it has not yet been used
@@ -2888,6 +2989,13 @@ void PDLParser::CheckVerifyResult(uint32 nextProtoID)
 }
 
 /*****************************************************************************/
+
+void PDLParser::ParseBeforeSection(_nbNetPDLElementExecuteX *execSection,HIRCodeGen &irCodeGen){
+	m_CodeGen = &irCodeGen;
+	ParseExecSection(execSection);
+
+}
+
 /**** Parsing execution sections     *****************************************/
 void PDLParser::ParseExecSection(_nbNetPDLElementExecuteX *execSection)
 {
@@ -2896,9 +3004,9 @@ void PDLParser::ParseExecSection(_nbNetPDLElementExecuteX *execSection)
 	while (execSection)
 	{
 		if (execSection->WhenExprTree)
-		{
+		{		
 			this->m_CodeGen->CommentStatement(string("WHEN '").append(execSection->WhenExprString).append("'"));
-			Node *expr = ParseExpressionInt(execSection->WhenExprTree);
+			HIRNode *expr = ParseExpressionInt(execSection->WhenExprTree);
 			if (expr == NULL)
 			{
 				this->GenerateWarning(string("'when' condition needs a valid boolean expression"),
@@ -2917,7 +3025,7 @@ void PDLParser::ParseExecSection(_nbNetPDLElementExecuteX *execSection)
 
 			*/
 			StmtIf *ifStmt = m_CodeGen->IfStatement(expr);
-			IRCodeGen trueBrCodeGen(m_GlobalSymbols, ifStmt->TrueBlock->Code);
+			HIRCodeGen trueBrCodeGen(m_GlobalSymbols, ifStmt->TrueBlock->Code);
 			ChangeCodeGen(trueBrCodeGen);
 		}
 
@@ -2940,8 +3048,7 @@ void PDLParser::ParseVerify(_nbNetPDLElementExecuteX *verifySection)
 
 	while (verifySection)
 	{
-		ParseElements(nbNETPDL_GET_ELEMENT(m_ProtoDB, verifySection->FirstChild));
-
+		ParseElements(nbNETPDL_GET_ELEMENT(m_ProtoDB, verifySection->FirstChild)); 
 		//go to next section
 		verifySection = verifySection->NextExecuteElement;
 	}
@@ -2949,14 +3056,21 @@ void PDLParser::ParseVerify(_nbNetPDLElementExecuteX *verifySection)
 
 /*****************************************************************************/
 /**** Parsing encapsulations     *********************************************/
-void PDLParser::ParseEncapsulation(SymbolProto &protoSymbol, FilterSubGraph &subGraph, SymbolLabel *filterFalse, IRCodeGen &irCodeGen)
+
+/* The defaultBehav parameter states what should be done if no encapsulated protocol matches.
+ * If true, go to filterTrue, else go to filterFalse.
+ */
+void PDLParser::ParseEncapsulation(SymbolProto *protoSymbol, std::map <string, SymbolLabel*> toStateProtoMap,
+                                   EncapFSA *fsa, bool defaultBehav, SymbolLabel *filterFalse, SymbolLabel *filterTrue, HIRCodeGen &irCodeGen)
 {
-	m_CurrProtoSym = &protoSymbol;
+
+	m_CurrProtoSym = protoSymbol;
 	m_IsEncapsulation = true;
 	m_CodeGen = &irCodeGen;
+	m_toStateProtoMap = toStateProtoMap;
 
-	m_CodeGen->CommentStatement(string(""));
-	m_CodeGen->CommentStatement(string("PROTOCOL ").append(protoSymbol.Name).append(": ENCAPSULATION"));
+	m_CodeGen->CommentStatement(string("PROTOCOL ").append(protoSymbol->Name).append(": ENCAPSULATION"));
+	
 
 	// reset protoverify_result
 	SymbolVariable *protoVerifyResult = m_GlobalSymbols.LookUpVariable(string("$protoverify_result"));
@@ -2966,24 +3080,24 @@ void PDLParser::ParseEncapsulation(SymbolProto &protoSymbol, FilterSubGraph &sub
 		m_CodeGen->TermNode(IR_IVAR, protoVerifyResult),
 		m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(NETPDL_PROTOVERIFYRESULT_NOTFOUND))));
 
-	m_ResolveCandidateLabel=m_CodeGen->NewLabel(LBL_CODE, string("res_candidate_").append(protoSymbol.Name));
+	m_ResolveCandidateLabel=m_CodeGen->NewLabel(LBL_CODE, string("res_candidate_").append(protoSymbol->Name)); //etichetta "res_candidate_ethIpTcp_lx
 	m_CandidateProtoToResolve.clear();
 
 #ifdef ENCAP_ONLY_WITH_PAYLOAD
-	Node *pktLengthEqZero = m_CodeGen->BinOp(IR_EQI,
+	HIRNode *pktLengthEqZero = m_CodeGen->BinOp(IR_EQI,
 		m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$packetlength")),
 		m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(0)));
-	Node *offLowerPBL = m_CodeGen->BinOp(IR_LTI,
+	HIRNode *offLowerPBL = m_CodeGen->BinOp(IR_LTI,
 		m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym),
 		m_CodeGen->TermNode(IR_IVAR,m_CodeGen->NewIntVar("$pbl")));
-	Node *offLowerPktLength = m_CodeGen->BinOp(IR_LTI,
+	HIRNode *offLowerPktLength = m_CodeGen->BinOp(IR_LTI,
 		m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym),
 		m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$packetlength")));
 
 	StmtIf *ifPayload = m_CodeGen->IfStatement(
 		m_CodeGen->BinOp(IR_ORB, m_CodeGen->BinOp(IR_ANDB, pktLengthEqZero, offLowerPBL), offLowerPktLength));
 
-	IRCodeGen ifPayloadCode(m_GlobalSymbols, &ifPayload->TrueBlock.Code);
+	HIRCodeGen ifPayloadCode(m_GlobalSymbols, &ifPayload->TrueBlock.Code);
 	ChangeCodeGen(ifPayloadCode);
 #endif
 
@@ -2993,25 +3107,28 @@ void PDLParser::ParseEncapsulation(SymbolProto &protoSymbol, FilterSubGraph &sub
 
 	//m_FieldScopes = &(m_GlobalSymbols.GetProtoFieldScopes(&protoSymbol));
 	//EnterFldScope();
-	FilterInfo filterInfo(filterFalse, subGraph);
+
+	FilterInfo filterInfo(filterFalse, filterTrue, *fsa);
 	m_FilterInfo = &filterInfo;
 
 	//cerr << "Parsing Encapsulation Section for Protocol " << protoSymbol.Name << endl;
 
-	_nbNetPDLElementProto *protoElement = protoSymbol.Info;
+	_nbNetPDLElementProto *protoElement = protoSymbol->Info;
 
-	if (protoElement->FirstEncapsulationItem)
-		ParseElements(protoElement->FirstEncapsulationItem);
+	if (protoElement->FirstEncapsulationItem){
+		ParseElements(protoElement->FirstEncapsulationItem); 
+	}
 
-	m_CodeGen->LabelStatement(m_ResolveCandidateLabel);
+	m_CodeGen->LabelStatement(m_ResolveCandidateLabel);//qui mette lalabel "res_candidate_ethIpTcp_lx
 
 	if (m_CandidateProtoToResolve.size()>0)
 	{
+		
 		string switchID = "tmp_" + m_CurrProtoSym->Name + "_" + int2str(m_SwCount++, 10);
 
 		this->m_CodeGen->CommentStatement(string("SWITCH '$resolved_candidate'"));
 
-		Node *switchExpr = m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$resolved_candidate_id"));
+		HIRNode *switchExpr = m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$resolved_candidate_id"));
 
 		SymbolLabel *swExit = m_CodeGen->NewLabel(LBL_LINKED);
 		SymbolLabel *swStart(0);
@@ -3024,21 +3141,21 @@ void PDLParser::ParseEncapsulation(SymbolProto &protoSymbol, FilterSubGraph &sub
 		if (swStart != NULL)
 			m_CodeGen->LabelStatement(swStart);
 
-		StmtSwitch *swStmt = m_CodeGen->SwitchStatement(switchExpr);
+		HIRStmtSwitch *swStmt = m_CodeGen->SwitchStatement(switchExpr);
 		swStmt->SwExit = swExit;
 
 		m_CandidateProtoToResolve.sort(less<int>());
 		for (list<int>::iterator i=m_CandidateProtoToResolve.begin(); i!=m_CandidateProtoToResolve.end(); i++)
 		{
-			Node *constVal = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol( (*i) ));
-			StmtCase *caseStmt = m_CodeGen->CaseStatement(swStmt, constVal);
-			IRCodeGen caseCodeGen(m_GlobalSymbols, caseStmt->Code->Code);
+			HIRNode *constVal = m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol( (*i) ));
+			StmtCase *caseStmt = m_CodeGen->CaseStatement(swStmt, constVal); //crea il case statement strano
+			HIRCodeGen caseCodeGen(m_GlobalSymbols, caseStmt->Code->Code);
 
 			//generate the code for the current case
 			ChangeCodeGen(caseCodeGen);
 
 			SymbolProto *nextPSym = m_GlobalSymbols.GetProto(*i);
-
+			
 			if (nextPSym == NULL)
 			{
 				this->GenerateWarning(string("The specified next protocol is unknown"),
@@ -3069,26 +3186,16 @@ void PDLParser::ParseEncapsulation(SymbolProto &protoSymbol, FilterSubGraph &sub
 			}
 #endif
 
-#ifdef EXEC_BEFORE_AS_SOON_AS_FOUND
-			// execute before
-			ParseExecBefore(*nextPSym, subGraph, filterFalse, caseCodeGen);
-#endif
+			//check if the next proto is inside the toStateProtoMap
 
-			nbASSERT(m_ProtoGraph->GetNode(m_CurrProtoSym) != NULL, "NULL ProtoGraph Node");
-			nbASSERT(m_ProtoGraph->GetNode(nextPSym) != NULL, "NULL ProtoGraph Node");
-
-			//check if the edge is inside the filter subgraph
-			EncapGraph::GraphNode *nodeMapFrom = m_FilterInfo->SubGraph.GetNodeMap(*m_ProtoGraph->GetNode(m_CurrProtoSym));
-			nbASSERT(nodeMapFrom != NULL, "the current protocol node should have a mapping into the filtersubgraph");
-			EncapGraph::GraphNode *nodeMapTo = m_FilterInfo->SubGraph.GetNodeMap(*m_ProtoGraph->GetNode(nextPSym));
-			if (nodeMapTo != NULL && m_FilterInfo->SubGraph.HasEdge(*nodeMapFrom, *nodeMapTo))
-			{
-				m_CodeGen->JumpStatement(m_GlobalSymbols.GetProtoStartLbl(nextPSym));
-			}
-			else
-			{
-				m_CodeGen->JumpStatement(m_FilterInfo->FilterFalse);
-			}
+			if (toStateProtoMap.find(nextPSym->Name) != toStateProtoMap.end())
+			{	
+				//[icerrato] cambiamento fatto per riconoscere il traffico http
+				//m_CodeGen->JumpStatement(m_GlobalSymbols.GetProtoStartLbl(nextPSym));
+				std::map <string, SymbolLabel*>::iterator iter = m_toStateProtoMap.find(nextPSym->Name);
+                  			m_CodeGen->JumpStatement((*iter).second);
+				
+		 	}
 
 			RestoreCodeGen();
 
@@ -3096,30 +3203,34 @@ void PDLParser::ParseEncapsulation(SymbolProto &protoSymbol, FilterSubGraph &sub
 		}
 
 		StmtCase *defaultCaseStmt = m_CodeGen->DefaultStatement(swStmt);
-		IRCodeGen caseCodeGen(m_GlobalSymbols, defaultCaseStmt->Code->Code);
+		HIRCodeGen caseCodeGen(m_GlobalSymbols, defaultCaseStmt->Code->Code);
 
 		ChangeCodeGen(caseCodeGen);
 		m_CodeGen->JumpStatement(m_FilterInfo->FilterFalse);
 		RestoreCodeGen();
 
-		this->m_CodeGen->CommentStatement(string("END SWITCH"));
+		this->m_CodeGen->CommentStatement(string("END SWITCH")); // /*** END SWITCH ***/
 	}
 
 #ifdef ENCAP_ONLY_WITH_PAYLOAD
 	RestoreCodeGen();
 #endif
 
-	m_CodeGen->JumpStatement(filterFalse);
+
+	// bool jumpFlag = false;
+	m_CodeGen->JumpStatement(defaultBehav? filterTrue : filterFalse);
+
+
 	m_CodeGen = NULL;
 	m_IsEncapsulation = false;
 	m_FilterInfo = NULL;
 	//m_FieldScopes = NULL;
 }
 
-void PDLParser::ParseExecBefore(SymbolProto &protoSymbol, FilterSubGraph &subGraph, SymbolLabel *filterFalse, IRCodeGen &irCodeGen)
+void PDLParser::ParseExecBefore(SymbolProto &protoSymbol, EncapFSA &fsa, SymbolLabel *filterFalse, SymbolLabel *filterTrue, HIRCodeGen &irCodeGen)
 {
 	SymbolProto *oldProtoSym = m_CurrProtoSym;
-	IRCodeGen *oldCodeGen = m_CodeGen;
+	HIRCodeGen *oldCodeGen = m_CodeGen;
 	FilterInfo *oldFilterInfo = m_FilterInfo;
 	bool oldIsEncapsulation = m_IsEncapsulation;
 
@@ -3127,7 +3238,7 @@ void PDLParser::ParseExecBefore(SymbolProto &protoSymbol, FilterSubGraph &subGra
 	m_IsEncapsulation = false;
 	m_CodeGen = &irCodeGen;
 
-	FilterInfo filterInfo(filterFalse, subGraph);
+	FilterInfo filterInfo(filterFalse, filterTrue, fsa);
 	m_FilterInfo = &filterInfo;
 
 	_nbNetPDLElementProto *protoElement = protoSymbol.Info;
@@ -3137,20 +3248,20 @@ void PDLParser::ParseExecBefore(SymbolProto &protoSymbol, FilterSubGraph &subGra
 		m_CodeGen->CommentStatement(string(protoSymbol.Name)+string(": execute-before"));
 
 #ifdef EXEC_BEFORE_ONLY_WITH_PAYLOAD
-		Node *pktLengthEqZero = m_CodeGen->BinOp(IR_EQI,
+		HIRNode *pktLengthEqZero = m_CodeGen->BinOp(IR_EQI,
 			m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$packetlength")),
 			m_CodeGen->TermNode(IR_ICONST, m_CodeGen->ConstIntSymbol(0)));
-		Node *offLowerPBL = m_CodeGen->BinOp(IR_LTI,
+		HIRNode *offLowerPBL = m_CodeGen->BinOp(IR_LTI,
 			m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym),
 			m_CodeGen->TermNode(IR_IVAR,m_CodeGen->NewIntVar("$pbl")));
-		Node *offLowerPktLength = m_CodeGen->BinOp(IR_LTI,
+		HIRNode *offLowerPktLength = m_CodeGen->BinOp(IR_LTI,
 			m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.CurrentOffsSym),
 			m_CodeGen->TermNode(IR_IVAR, m_GlobalSymbols.LookUpVariable("$packetlength")));
 
 		StmtIf *ifPayload = m_CodeGen->IfStatement(
 			m_CodeGen->BinOp(IR_ORB, m_CodeGen->BinOp(IR_ANDB, pktLengthEqZero, offLowerPBL), offLowerPktLength));
 
-		IRCodeGen ifPayloadCode(m_GlobalSymbols, ifPayload->TrueBlock->Code);
+		HIRCodeGen ifPayloadCode(m_GlobalSymbols, ifPayload->TrueBlock->Code);
 		ChangeCodeGen(ifPayloadCode);
 #endif
 
@@ -3240,13 +3351,14 @@ void PDLParser::VisitIf(_nbNetPDLElementIf *ifElement)
 		return;
 	}
 
-	Node *expr = ParseExpressionInt(ifElement->ExprTree);
+	HIRNode *expr = ParseExpressionInt(ifElement->ExprTree);
 	if (expr == NULL)
 	{
 #ifdef STATISTICS
 		this->m_CurrProtoSym->UnsupportedExpr++;
 #endif
 		this->GenerateWarning(string("'if' element needs a valid boolean expression"),__FILE__, __FUNCTION__, __LINE__, 1, ifElement->NestingLevel);
+
 		return;
 	}
 	else if (!ReverseCondition(&expr))
@@ -3431,7 +3543,7 @@ bool PDLParser::CheckAllowedElement(_nbNetPDLElementBase *element)
 }
 
 
-void PDLParser::GenerateInfo(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation) {
+void PDLParser::GenerateInfo(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation) {
 	if (m_GlobalInfo->Debugging.DebugLevel >= requiredDebugLevel)
 	{
 		if (m_CurrProtoSym != NULL)
@@ -3441,7 +3553,7 @@ void PDLParser::GenerateInfo(string message, char *file, char *function, int lin
 }
 
 
-void PDLParser::GenerateWarning(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation)
+void PDLParser::GenerateWarning(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation)
 {
 	if (m_CurrProtoSym != NULL)
 		message=string("(")+this->m_CurrProtoSym->Name+string(") ").append(message);
@@ -3452,7 +3564,7 @@ void PDLParser::GenerateWarning(string message, char *file, char *function, int 
 	m_ErrorRecorder.PDLWarning(message);
 }
 
-void PDLParser::GenerateError(string message, char *file, char *function, int line, int requiredDebugLevel, int indentation)
+void PDLParser::GenerateError(string message, const char *file, const char *function, int line, int requiredDebugLevel, int indentation)
 {
 	if (m_CurrProtoSym != NULL)
 		message=string("(")+this->m_CurrProtoSym->Name+string(") ").append(message);
@@ -3490,6 +3602,7 @@ void PDLParser::GenerateError(string message, char *file, char *function, int li
 //	Node *expr = ParseExpressionInt(verifyElem->WhenExprTree);
 //	if (expr == NULL)
 //	{
+
 //		m_ErrorRecorder.PDLError(string("ProtoCheck element needs a valid boolean expression"));
 //		return;
 //	}

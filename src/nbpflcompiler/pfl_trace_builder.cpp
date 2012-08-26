@@ -40,7 +40,7 @@ void PFLTraceBuilder::handle_one_succ_bb(PFLTraceBuilder::bb_t *bb)
 			//			std::cerr << "BB ID: " << bb->getId() << "Code Size = 0" << std::endl;
 
 			//assert(1 == 0 && "This should not happen");
-			JumpPFLMIRNode *new_j = new JumpPFLMIRNode(bb->getId(), cfg.getBBById(target->getId())->getStartLabel());
+			JumpMIRONode *new_j = new JumpMIRONode(bb->getId(), cfg.getBBById(target->getId())->getStartLabel());
 			//bb->getCode().pop_back();
 			new_j->setOpcode(JUMPW);
 			bb->getCode().push_back(new_j);
@@ -49,7 +49,7 @@ void PFLTraceBuilder::handle_one_succ_bb(PFLTraceBuilder::bb_t *bb)
 	}
 	else
 	{
-		PFLMIRNode* insn = bb->getCode().back();
+		MIRONode* insn = bb->getCode().back();
 
 		//std::cout << "Ultima istruzione: ";
 		//insn->printNode(std::cout, true);
@@ -68,7 +68,7 @@ void PFLTraceBuilder::handle_one_succ_bb(PFLTraceBuilder::bb_t *bb)
 			if(opcode != JUMP && opcode != JUMPW)
 			{
 				//add the jump
-				JumpPFLMIRNode *new_j = new JumpPFLMIRNode(bb->getId(), cfg.getBBById(target->getId())->getStartLabel());
+				JumpMIRONode *new_j = new JumpMIRONode(bb->getId(), cfg.getBBById(target->getId())->getStartLabel());
 				//bb->getCode().pop_back();
 				new_j->setOpcode(JUMPW);
 				bb->getCode().push_back(new_j);
@@ -95,18 +95,18 @@ void PFLTraceBuilder::handle_two_succ_bb(PFLTraceBuilder::bb_t *bb)
 	bb_t* next = bb->getProperty< bb_t* >(jit::TraceBuilder<PFLCFG>::next_prop_name);
 	std::list< PFLCFG::GraphNode* > successors(bb->getSuccessors());
 
-	PFLMIRNode* insn = bb->getCode().back();
+	MIRONode* insn = bb->getCode().back();
 
 
 	//std::cout << "Ultima istruzione: ";
 	//insn->printNode(std::cout, true);
 	//std::cout << std::endl;
 
-	if( ((StmtPFLMIRNode*)insn)->Kind != STMT_JUMP && ((StmtPFLMIRNode*)insn)->Kind != STMT_JUMP_FIELD)
+	if( ((StmtMIRONode*)insn)->Kind != STMT_JUMP && ((StmtMIRONode*)insn)->Kind != STMT_JUMP_FIELD)
 		return;
 
 	//uint16_t jt = LBL_OPERAND(insn->Operands[0].Op)->Label;
-	uint16_t jt = ((JumpPFLMIRNode*)insn)->getTrueTarget();
+	uint16_t jt = ((JumpMIRONode*)insn)->getTrueTarget();
 	successors.remove(this->cfg.getBBById(jt)->getNode());
 	uint16_t jf = successors.front()->NodeInfo->getId();
 
@@ -114,14 +114,14 @@ void PFLTraceBuilder::handle_two_succ_bb(PFLTraceBuilder::bb_t *bb)
 	if(!next || (next->getId() != jt && next->getId() != jf))
 	{
 		//x86_Asm_JMP_Label(bb->getCode(), jf);
-		JumpPFLMIRNode *new_j = new JumpPFLMIRNode(bb->getId(), cfg.getBBById(jf)->getStartLabel());
+		JumpMIRONode *new_j = new JumpMIRONode(bb->getId(), cfg.getBBById(jf)->getStartLabel());
 		//bb->getCode().pop_back();
 		new_j->setOpcode(JUMPW);
 		bb->getCode().push_back(new_j);
 		return;
 	}
 
-	PFLMIRNode *jump_node = insn->getKid(0);
+	MIRONode *jump_node = insn->getKid(0);
 	if (jump_node->getOpcode() == JUMPW)
 		return;
 
@@ -131,7 +131,7 @@ void PFLTraceBuilder::handle_two_succ_bb(PFLTraceBuilder::bb_t *bb)
 		//insn->printNode(std::cout,false);
 		//std::cout << std::endl;
 
-		((JumpPFLMIRNode*)insn)->swapTargets();
+		((JumpMIRONode*)insn)->swapTargets();
 		//FIXME
 		//assert(1 == 0 && "Not implemented yet");
 		switch(jump_node->getOpcode())

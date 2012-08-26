@@ -77,7 +77,9 @@ Px86Instruction jit::ia32::x86_Asm_New_Op(x86OpCodesEnum code)
 {
 	NETVM_ASSERT(OP_ONLY(code) <= X86_COMMENT, "Trying to create an invalid x86 instruction!");
 
-	VERB1(JIT_INSTR_LVL2, "Creating new X86 instruction: %s\n", x86OpDescriptions[OP_ONLY(code)].Name);
+#ifdef ENABLE_NETVM_LOGGING
+	logdata(LOG_JIT_BUILD_BLOCK_LVL2, "Creating new x86 instruction: %s", x86OpDescriptions[OP_ONLY(code)].Name);
+#endif
 
 	return new x86Instruction(code);
 }

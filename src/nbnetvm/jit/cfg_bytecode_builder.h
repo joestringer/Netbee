@@ -87,7 +87,7 @@ namespace jit {
 			NETVM_ASSERT(BCInfoArray != NULL, __FUNCTION__"NULL BCInfoArray pointer");
 
 			uint16_t target = BCInfoArray[targetpc].BasicBlockId;
-			addEdge(from->getId(), target);
+			this->addEdge(from->getId(), target);
 			labelBB(target);
 			labelBB(from);
 		}
@@ -121,7 +121,7 @@ namespace jit {
 			} 
 			else if (nvmFLAG_ISSET(BCInfoArray[pc].Flags, FLAG_RET_INSN))
 			{
-				addEdge(from, this->cfg.getExitBB());
+                          this->addEdge(from, this->cfg.getExitBB());
 				labelBB(from);
 			}
 			else
@@ -178,7 +178,7 @@ namespace jit {
 			
 			handler->start_bb = newBB;
 
-			addEdge(BasicBlock<IR>::ENTRY_BB, newBB);
+			this->addEdge(BasicBlock<IR>::ENTRY_BB, newBB);
 			labelBB(newBB);
 
 			for(pc = 0; pc<numInsn; pc++)

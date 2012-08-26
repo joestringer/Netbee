@@ -44,7 +44,7 @@ public:
 	int InitializeDecoder(nbPacketDecoder *NetBeePacketDecoder);
 
 	// Functions used by CPDMLMaker and CPSMLMaker
-	int InitializeParsForDump(char *RootXMLTag, char *InitText);
+	int InitializeParsForDump(const char *RootXMLTag, const char *InitText);
 	int StorePacket(char *Buffer, unsigned int BytesToWrite);
 
 	//! Handle to the file that is used to store temporary data on file when we're getting packets from the decoder

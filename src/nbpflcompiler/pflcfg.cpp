@@ -20,33 +20,33 @@ using namespace std;
 
 PFLBasicBlock::~PFLBasicBlock()
 {
-	typedef list<PFLMIRNode*>::iterator it_t;
-	for(it_t i = PFLMIRNodeCode->begin(); i != PFLMIRNodeCode->end(); i++)
+	typedef list<MIRONode*>::iterator it_t;
+	for(it_t i = MIRONodeCode->begin(); i != MIRONodeCode->end(); i++)
 	{
-		StmtPFLMIRNode *stmt = dynamic_cast<StmtPFLMIRNode*>(*i);
+		StmtMIRONode *stmt = dynamic_cast<StmtMIRONode*>(*i);
 		delete stmt;
 	}
 
-	delete PFLMIRNodeCode;
+	delete MIRONodeCode;
 	//if(StartLabel)
 	//	delete StartLabel;
 }
 
-void PFLBasicBlock::addHeadInstruction(PFLMIRNode *node)
+void PFLBasicBlock::addHeadInstruction(MIRONode *node)
 {
 	assert(node != NULL && "Adding a NULL node to a BasicBlock");
 	//std::cout << "Aggiungo un nodo al BB: " << getId() << std::endl;
-	PFLMIRNodeCode->push_front(node);
+	MIRONodeCode->push_front(node);
 }
 
-void PFLBasicBlock::addTailInstruction(PFLMIRNode *node)
+void PFLBasicBlock::addTailInstruction(MIRONode *node)
 {
 	assert(node != NULL && "Adding a NULL node to a BasicBlock");
-	PFLMIRNodeCode->push_back(node);
+	MIRONodeCode->push_back(node);
 }
 
 PFLCFG::PFLCFG()
-	: jit::CFG<PFLMIRNode, PFLBasicBlock>(std::string("pflCFG"), true), EntryLbl(LBL_CODE, 0, "ENTRY"), ExitLbl(LBL_CODE, 0, "EXIT"), m_BBCount(0), m_CurrMacroBlock(0)
+	: jit::CFG<MIRONode, PFLBasicBlock>(std::string("pflCFG"), true), EntryLbl(LBL_CODE, 0, "ENTRY"), ExitLbl(LBL_CODE, 0, "EXIT"), m_BBCount(0), m_CurrMacroBlock(0)
 {
 	entryNode = NewBasicBlock(BB_CFG_ENTRY, &EntryLbl);
 
@@ -233,25 +233,28 @@ void CFGBuilder::FoundLabel(StmtLabel *stmtLabel)
 	if (bb)
 	{
 		//The label is the target of a forward jump
+		//we have found a label that is the target of a jump. So the label is the start of a basic block
 		if (m_CurrBB != NULL)
-		{
+		{//the istruction above the label represents the end of the current basic block
 			m_CurrBB->Code.SetTail(stmtLabel->Prev);
-			AddEdge(m_CurrBB, bb);
+			AddEdge(m_CurrBB, bb); //adds an edge from the current basic block to the jump-target one
 		}
+		//this label is the start of a new basic block
 		bb->Code.SetHead(stmtLabel);
-		m_CurrBB = bb;
+		m_CurrBB = bb; ///changes the current basic block to the new one
 		return;
 	}	
 
 	if (m_CurrBB == NULL)
 	{
 		//First label found, the current basic block is not set, so we create it
+		//creates a new basic block that starts end ends at this label
 		m_CurrBB = m_CFG.NewBasicBlock(LABEL_SYMBOL(stmtLabel));
 		m_CurrBB->Code.SetHead(stmtLabel);
 		m_CurrBB->Code.SetTail(stmtLabel);
 		if (IsFirstBB)
-		{
-			AddEdge(m_CFG.getEntryBB(), m_CurrBB);
+		{//the basic block just created is the first basic block
+			AddEdge(m_CFG.getEntryBB(), m_CurrBB);//link the new bb (the one created) to the start basic block
 			IsFirstBB = false;
 		}
 		return;
@@ -268,11 +271,11 @@ void CFGBuilder::ManageJumpTarget(SymbolLabel *target)
 {
 	BBType *targetBB = m_CFG.LookUpLabel(target->Name);
 	if (targetBB)
-	{
+	{//there is already a bb which starts at the current label
 		//Target label has already a mapping
 
 		if (!targetBB->Code.Empty())
-		{	
+		{	//the target bb has already code
 			//Target is a previously visited BB (otherwise this could be a forward branch to a label that was
 			//already target of a forward branch
 			if (targetBB->StartLabel->Name.compare(target->Name) != 0)
@@ -290,23 +293,23 @@ void CFGBuilder::ManageJumpTarget(SymbolLabel *target)
 				return;
 			}
 		}
-		AddEdge(m_CurrBB, targetBB);
+		AddEdge(m_CurrBB, targetBB);//adds an edge from the current bb to the one which starts at the current label
 		return;
 	}
 	// Target label does not have a mapping
-	targetBB = m_CFG.NewBasicBlock(target);
-	AddEdge(m_CurrBB, targetBB);
+	targetBB = m_CFG.NewBasicBlock(target);//creates a new basic block that starts at the branch-target label
+	AddEdge(m_CurrBB, targetBB);//adds an edge from the current bb to the one which starts at the current label
 }
 
 void CFGBuilder::FoundJump(StmtJump *stmtJump)
 {
 
 	nbASSERT(stmtJump->TrueBranch, "a jump stmt should have at least a true branch");
-	m_CurrBB->Code.SetTail(stmtJump);
+	m_CurrBB->Code.SetTail(stmtJump);//a jump is the end of a bb
 	SymbolLabel *trueBr = stmtJump->TrueBranch;
 	if (trueBr)
 		ManageJumpTarget(trueBr);
-	SymbolLabel *falseBr = stmtJump->FalseBranch;
+	SymbolLabel *falseBr = stmtJump->FalseBranch; 
 	if (falseBr)
 		ManageJumpTarget(falseBr);
 	m_CurrBB = NULL;
@@ -317,7 +320,7 @@ void CFGBuilder::FoundJump(StmtJump *stmtJump)
 void CFGBuilder::FoundSwitch(StmtSwitch *stmtSwitch)
 {
 	StmtBase *caseSt = stmtSwitch->Cases->Front();
-	while (caseSt)
+	while (caseSt)//for every case in the switch
 	{
 		StmtCase *caseStmt = (StmtCase*)caseSt;
 		nbASSERT(caseStmt->Target != NULL, "target should be != NULL");
@@ -333,36 +336,38 @@ void CFGBuilder::FoundSwitch(StmtSwitch *stmtSwitch)
 	m_CurrBB = NULL;
 }
 
-
+//creates a new basic block
 void CFGBuilder::ManageNoLabelBB(StmtBase *stmt)
-{
+{	
+	//the current statement is both the head and the tail of the new basic block
 	m_CurrBB = m_CFG.NewBasicBlock(NULL);
 	m_CurrBB->Code.SetHead(stmt);
 	m_CurrBB->Code.SetTail(stmt);
 }
 
 
+//creates the control flow graph
 void CFGBuilder::BuildCFG(CodeList &codeList)
 {
 	StmtBase *first = codeList.Front();
 	StmtBase *last = codeList.Back();
 	StmtBase *stmt = first;
-	while(stmt)
+	while(stmt)//for every statement in the codeList
 	{
 		switch(stmt->Kind)
 		{
 			case STMT_LABEL:
-				FoundLabel((StmtLabel*)stmt);			
+				FoundLabel((StmtLabel*)stmt);	
 				break;
 			
 			case STMT_GEN:
-				if (m_CurrBB == NULL)
-					ManageNoLabelBB(stmt);
-				m_CurrBB->Code.SetTail(stmt);
+				if (m_CurrBB == NULL) //there is no basic block yet
+					ManageNoLabelBB(stmt); 
+				m_CurrBB->Code.SetTail(stmt);//the the statement as the end of the current basic block
 				// [ds] this should be fixed...
 				if (stmt->Forest->Op == RET /*|| stmt->Forest->Op == SNDPKT*/)
-				{
-					AddEdge(m_CurrBB, m_CFG.getExitBB());
+				{//the istruction is RET so this is the end of the current bb
+					AddEdge(m_CurrBB, m_CFG.getExitBB());//links the current bb to the exit one
 					m_CurrBB = NULL;
 				}
 				break;
@@ -371,7 +376,7 @@ void CFGBuilder::BuildCFG(CodeList &codeList)
 			case STMT_JUMP_FIELD:
 				if (m_CurrBB == NULL)
 					ManageNoLabelBB(stmt);
-				FoundJump((StmtJump*)stmt);
+				FoundJump((StmtJump*)stmt); 
 				break;
 
 			case STMT_SWITCH:
@@ -380,10 +385,10 @@ void CFGBuilder::BuildCFG(CodeList &codeList)
 				FoundSwitch((StmtSwitch*)stmt);
 				break;
 
-			case STMT_BLOCK:
+			case STMT_BLOCK: 
 				m_CFG.EnterMacroBlock();
 				m_CFG.m_CurrMacroBlock->Caption =((StmtBlock*)stmt)->Comment;
-				BuildCFG(*((StmtBlock*)stmt)->Code);
+				BuildCFG(*((StmtBlock*)stmt)->Code); //creates a new CFG for the block
 				m_CFG.ExitMacroBlock();
 				break;
 			case STMT_COMMENT:
@@ -394,15 +399,16 @@ void CFGBuilder::BuildCFG(CodeList &codeList)
 				break;
 		}
 		if (stmt == last && m_CurrBB)
-			AddEdge(m_CurrBB, m_CFG.getExitBB());
+			AddEdge(m_CurrBB, m_CFG.getExitBB());//adds an edge from the current bb to the exit one
 		stmt = stmt->Next;
 	}
 }
 
+//The CodeList contains MIR statements
 void CFGBuilder::Build(CodeList &codeList)
 {
 	typedef PFLCFG::SortedIterator s_it_t;
-	BuildCFG(codeList);
+	BuildCFG(codeList); //creates the control flow graph
 
 	//patch the code-list of every basic block
 	PFLCFG::NodeIterator i = m_CFG.FirstNode();
@@ -414,10 +420,11 @@ void CFGBuilder::Build(CodeList &codeList)
 			bb->Code.Front()->Prev = NULL;
 			bb->Code.Back()->Next = NULL;
 		}
-		//Translate code generated into the PFLMIRNode form
+		//Translate code generated into the MIRONode form
 		//std::cout << "Traduco il BB: " << bb->getId() << std::endl;
+		//NodeTranslator is in node_translation.h
 		NodeTranslator nt(&bb->Code, bb->getId());
-		(nt.translate(bb->getMIRNodeCode()));
+		(nt.translate(bb->getMIRNodeCode())); //generates the MIRO code
 		bb->setProperty("reached", false);
 	}
 
@@ -492,7 +499,7 @@ void PFLBasicBlock::add_copy_tail(PFLBasicBlock::IRNode::RegType src, PFLBasicBl
 uint32_t PFLBasicBlock::getCodeSize()
 {
 	uint32_t counter = 0;
-	typedef std::list<PFLMIRNode*>::iterator l_it;
+	typedef std::list<MIRONode*>::iterator l_it;
 	for(IRStmtNodeIterator i = codeBegin(); i != codeEnd(); i++)
 	{
 		if( (*i)->isStateChanger() )	
@@ -501,9 +508,9 @@ uint32_t PFLBasicBlock::getCodeSize()
 	return counter;
 }
 
-PFLMIRNode *PFLBasicBlock::getLastStatement()
+MIRONode *PFLBasicBlock::getLastStatement()
 {
-	if(PFLMIRNodeCode->size() > 0)
+	if(MIRONodeCode->size() > 0)
 		return *(--codeEnd());
 	else
 		return NULL;

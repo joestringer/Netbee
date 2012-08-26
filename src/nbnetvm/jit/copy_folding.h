@@ -27,7 +27,7 @@ using std::min;
 
 namespace jit {
 
-static void free_vector(std::vector<nbBitVector*>& bv)
+inline static void free_vector(std::vector<nbBitVector*>& bv)
 {
 	std::vector<nbBitVector*>::iterator i;
 	for(i = bv.begin(); i != bv.end(); i++)
@@ -36,6 +36,7 @@ static void free_vector(std::vector<nbBitVector*>& bv)
 			delete *i;
 	}
 }
+
 
 template<typename _CFG>
 class Interference_Map {

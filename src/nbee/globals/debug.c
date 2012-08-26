@@ -15,6 +15,74 @@
 #endif
 
 
+#ifdef ENABLE_NETVM_LOGGING
+
+void logdata(int LogScope, const char *Format, ...)
+{
+char Buffer[2028];
+va_list Args;
+FILE *LogFile;
+
+	LogFile= NULL;
+	va_start(Args, Format);
+
+#if defined(_WIN32) && (_MSC_VER >= 1400)	/* Visual Studio 2005 */
+	_vsnprintf_s(Buffer, sizeof(Buffer) - 1, _TRUNCATE, Format, Args);
+#else
+	vsnprintf(Buffer, sizeof(Buffer) - 1, Format, Args);
+#endif
+
+	// Terminate buffer, just in case
+	Buffer[sizeof(Buffer) - 1] = 0;
+
+	switch (LogScope)
+	{
+		case LOG_NETIL_INTERPRETER:
+		{
+			LogFile= fopen("log-netil.txt", "a+");
+			break;
+		}
+
+		case LOG_JIT_BUILD_BLOCK_LVL2:
+		{
+			LogFile= fopen("log-buildingblocks.txt", "a+");
+			break;
+		}
+
+		case LOG_JIT_LISTS_DEBUG_LVL:
+		{
+			LogFile= fopen("log-jitlists.txt", "a+");
+			break;
+		}
+
+		case LOG_BYTECODE_LOAD_SAVE:
+		{
+			LogFile= fopen("log-bytecode-loadsave.txt", "a+");
+			break;
+		}
+
+		case LOG_RUNTIME_CREATE_PEGRAPH:
+		{
+			LogFile= fopen("log-runtime-creation.txt", "a+");
+			break;
+		}
+		default:
+		{
+			nbPrintError(__FILE__, __FUNCTION__, __LINE__, "\nError logging data: cannot find file for that scope.");
+		}
+	}
+
+	if (LogFile)
+	{
+		fprintf(LogFile, "%s\n", Buffer);
+		fclose(LogFile);
+	}
+	else
+		nbPrintError(__FILE__, __FUNCTION__, __LINE__, "\nError logging data: cannot open log file.");
+}
+#endif
+
+
 int errorsnprintf(const char *File, const char *Function, int Line, char* Buffer, int BufSize, const char *Format, ...)
 {
 int WrittenBytes;
@@ -91,7 +159,7 @@ char Buffer[2048];
 
 
 // Prints debugging information
-void nbPrintDebugLine(char* Msg, unsigned int DebugType, const char *File, const char *Function, int Line, unsigned int Indentation)
+void nbPrintDebugLine(const char* Msg, unsigned int DebugType, const char *File, const char *Function, int Line, unsigned int Indentation)
 {
 	char buf[10240];
 	char *p=buf;

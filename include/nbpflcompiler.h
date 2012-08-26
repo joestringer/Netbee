@@ -55,6 +55,10 @@ class NetPFLFrontEnd;	//forward declaration
 class ErrorRecorder;	//forward declaration
 
 
+#define N_ALLFIELDS 128 //!< Size of the Allfields DescriptorVector
+#define INFO_FIELDS_SIZE 4 //!< number of bytes for each fields in the info-partition
+#define INFO_FIELDS_SIZE_ALL 6 //!< number of bytes for each "allfields" fields in the info-partition
+
 
 #define nbNETPFLCOMPILER_MAX_ALLFIELDS 128		//!< Size of the _nbExtractedFieldsDescriptorVector when the 'allfields' keyword is used for extractinf data
 #define nbNETPFLCOMPILER_INFO_FIELDS_SIZE 4		//!< Number of bytes dedicated to each fields in the info-partition
@@ -86,7 +90,6 @@ class ErrorRecorder;	//forward declaration
 	#endif
 #endif
 
-
 // class 'std::list<_Ty>' needs to have dll-interface to be used by clients of class (nbNetPFLCompiler::exFieldList)
 #ifdef WIN32
 #pragma warning(disable: 4251)
@@ -96,12 +99,6 @@ class ErrorRecorder;	//forward declaration
 struct SymbolField;     //forward declaration
 //struct _nbExtractedFieldsDescriptorVector; //forward declaration
 typedef list<SymbolField*> FieldsList_t;
-
-
-
-
-
-
 
 /*!
 	\brief This class implements the NetPFL Compiler
@@ -218,6 +215,15 @@ public:
 	*/
 
 	int CheckFilter(const char *NetPFLFilterString);
+	
+		/*!
+		\brief Prints the final state automaton related to the filtering expression
+
+		\param AutomatonFilename	Name of the .dot output file
+	*/
+
+	
+	void PrintFSA(const char *AutomatonFilename);
 
 	/*!
 		\brief Compiles a NetPFL filter
@@ -229,6 +235,14 @@ public:
 	*/
 
 	int CompileFilter(const char *NetPFLFilterString, char **NetILCode, bool optimizationCycles=true);
+	
+	/*!
+		\brief Create the final state automaton for a NetPFL filter
+
+		\param NetPFLFilterString	Filter string, in the NetPFL language
+	*/
+	
+	int CreateAutomatonFromFilter(const char *NetPFLFilterString);
 
 	/*!
 		\brief Returns the length of the character array containing the generated NetIL filter

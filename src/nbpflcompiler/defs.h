@@ -68,7 +68,7 @@ typedef int				int32;
 	{\
 		if (!(cond))\
 		{\
-			fprintf(stderr, "NetBee ASSERTION: %s", msg);\
+                  fprintf(stderr, "NetBee ASSERTION: %s\n\tin %s:%d\n", msg, __FILE__, __LINE__); \
 			abort();\
 		}\
 	}

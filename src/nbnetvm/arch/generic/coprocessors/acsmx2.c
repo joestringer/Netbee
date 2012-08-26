@@ -811,7 +811,7 @@ Convert_NFA_To_DFA (ACSM_STRUCT2 * acsm)
 static int
 Conv_List_To_Full(ACSM_STRUCT2 * acsm)
 {
-  int         tcnt, k;
+  int         k;
   acstate_t * p;
   acstate_t ** NextState = acsm->acsmNextState;
 
@@ -820,7 +820,7 @@ Conv_List_To_Full(ACSM_STRUCT2 * acsm)
     p = AC_MALLOC( sizeof(acstate_t) * (acsm->acsmAlphabetSize+2) );
     if(!p) return -1;
 
-    tcnt = List_ConvToFull( acsm, (acstate_t)k, p+2 );
+    List_ConvToFull( acsm, (acstate_t)k, p+2 );
 
     p[0] = ACF_FULL;
     p[1] = 0; /* no matches yet */
@@ -1118,7 +1118,7 @@ static void
 Print_DFA(ACSM_STRUCT2 * acsm)
 {
   int  k,i;
-  acstate_t * p, state, n, fmt, index, nb, bmatch;
+  acstate_t * p, state, n, fmt, index, nb;
   acstate_t ** NextState = acsm->acsmNextState;
 
   printf("Print DFA - %d active states\n",acsm->acsmNumStates);
@@ -1131,7 +1131,7 @@ Print_DFA(ACSM_STRUCT2 * acsm)
 
     fmt = *p++;
 
-    bmatch = *p++;
+    /* bmatch =  */ p++;
 
     printf("state %3d, fmt=%d: ",k,fmt);
 
@@ -2164,14 +2164,14 @@ acsmSearchSparseNFA(ACSM_STRUCT2 * acsm, unsigned char *Tx, int n,
   ACSM_PATTERN2   * mlist;
   unsigned char   * Tend;
   int               nfound = 0;
-  unsigned char   * T, *Tc;
+  unsigned char   * T /* , *Tc */;
   int               index;
   acstate_t      ** NextState= acsm->acsmNextState;
   acstate_t       * FailState= acsm->acsmFailState;
   ACSM_PATTERN2  ** MatchList = acsm->acsmMatchList;
   unsigned char     Tchar;
 
-  Tc   = Tx;
+  // Tc   = Tx;
   T    = Tx;
   Tend = T + n;
 

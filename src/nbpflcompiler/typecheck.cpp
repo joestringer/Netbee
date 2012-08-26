@@ -114,13 +114,16 @@ bool CheckVarBounds(SymbolVariable *varSym)
 }
 
 
-
+//[icerrato] i guess Node is an HIRNode
 bool CheckRefBounds(Node *node)
 {
 	nbASSERT(node != NULL, "node cannot be NULL");
 	nbASSERT(node->Op == IR_SVAR || node->Op == IR_FIELD, "node must be an IR_SVAR");
 	nbASSERT(node->Sym != NULL, "contained symbol cannot be NULL");
-	Node *lenExpr(node->GetRightChild());
+	
+	//node is an HIRNode
+	
+	HIRNode *lenExpr(static_cast<HIRNode*>(node)->GetRightChild());
 
 	if (lenExpr == NULL)
 		return CheckSymbolBounds(node->Sym);

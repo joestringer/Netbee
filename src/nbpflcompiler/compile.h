@@ -9,20 +9,23 @@
 
 
 #include "netpflfrontend.h"
+#include "encapgraph.h"
 #include "pflexpression.h"
 #include "globalsymbols.h"
 #include "errors.h"
 
 struct ParserInfo
 {
-	PFLStatement	*Filter;
 	GlobalSymbols   *GlobalSyms;
 	ErrorRecorder	*ErrRecorder;
+	PFLStatement	*Filter;
+
 	EncapGraph	*ProtoGraph;
-	IRCodeGen		CodeGen;
+	HIRCodeGen		CodeGen;
+	string			FilterString;
 
 	ParserInfo(GlobalSymbols &globalSyms, ErrorRecorder &errRecorder)
-		:Filter(0),  GlobalSyms(&globalSyms), ErrRecorder(&errRecorder), CodeGen(globalSyms){}
+		:GlobalSyms(&globalSyms), ErrRecorder(&errRecorder), Filter(0), CodeGen(globalSyms){}
 
 
 	void ResetFilter(void)
@@ -32,10 +35,12 @@ struct ParserInfo
 
 };
 
+#define ID_LEN 256
+
 extern int pfl_parse(struct ParserInfo *parserInfo);
 void pflcompiler_lex_init(const char *buf);
 void pflcompiler_lex_cleanup();
-int pfl_error(struct ParserInfo *parserInfo, const char *s);
+
 
 extern void compile(ParserInfo *parserInfo, const char *filter, int debug);
 

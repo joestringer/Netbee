@@ -79,7 +79,7 @@ public:
 		\return nbSUCCESS if everything is fine, nbFAILURE in case or error.
 		In case of error, the error message can be retrieved by the GetLastError() method.
 	*/
-	virtual int GetVariableID(char* Name, int* VariableID)= 0;
+	virtual int GetVariableID(const char* Name, int* VariableID)= 0;
 
 	/*!
 		\brief Clear the variables whose validity is limited to one packet.

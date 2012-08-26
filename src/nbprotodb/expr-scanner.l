@@ -15,6 +15,7 @@
 #include "expressions.h"
 #include "expr-grammar.tab.h"
 
+#define YY_NO_INPUT
 
 void pdl_error(char **, char*);
 

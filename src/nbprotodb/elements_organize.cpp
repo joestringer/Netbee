@@ -1616,7 +1616,7 @@ struct _nbNetPDLElementSection *NetPDLElement= (struct _nbNetPDLElementSection *
 }
 
 
-char *GetProtoName(struct _nbNetPDLElementBase *NetPDLElement)
+const char *GetProtoName(struct _nbNetPDLElementBase *NetPDLElement)
 {
 	while ((NetPDLElement) && (NetPDLElement->Type != nbNETPDL_IDEL_PROTO))
 		NetPDLElement= NETPDL_GET_ELEMENT(NetPDLElement->Parent);

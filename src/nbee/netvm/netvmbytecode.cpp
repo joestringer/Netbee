@@ -79,7 +79,7 @@ int nbNetVmByteCode::OpenBinaryFile(char *FileName)
 {
 	if( nvmOpenBinaryFile(this->GetNetVmByteCodePointer(), FileName)!= nvmSUCCESS )	
 	{
-		printf("Cannot open the Bunary file\n");
+		printf("Cannot open the binary file\n");
 		return nbFAILURE;
 	}
 	return nbSUCCESS;	

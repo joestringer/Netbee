@@ -34,7 +34,7 @@ private:
 		return;
 	}
 
-	void InvertBranch(JumpPFLMIRNode *brStmt);
+	void InvertBranch(JumpMIRONode *brStmt);
 public:
 
 	NetILTraceBuilder(ostream &stream)

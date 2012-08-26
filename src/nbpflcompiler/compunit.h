@@ -13,7 +13,7 @@
 #include "statements.h"
 #include <iostream>
 #include "pflcfg.h"
-#include "pflmirnode.h"
+#include "mironode.h"
 #include <list>
 using namespace std;
 
@@ -35,12 +35,13 @@ struct CompilationUnit
 	PFLCFG			Cfg;
 
 	bool			UsingCoproLookupEx;
+	bool			UsingCoproStringMatching;
 	bool			UsingCoproRegEx;
 	DataItemList_t	*DataItems;
 
 	CompilationUnit(string source)
 		:NumLocals(0), MaxStack(0), PFLSource(source),
-		UsingCoproLookupEx(false), UsingCoproRegEx(false),
+		UsingCoproLookupEx(false), UsingCoproStringMatching(false), UsingCoproRegEx(false),
 		DataItems(0)
 	{}
 	

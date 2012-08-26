@@ -1,24 +1,7 @@
 # Set requirement for minimum version.
 CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
 
-#IF (CMAKE_MAJOR_VERSION GREATER 2)
-#	# Do not try to escape preprocessor definition (default behavior before cmake 2.6).
-#	CMAKE_POLICY(SET CMP0005 OLD)
-#
-#	# Split additional libraries specifications for the linker in path and filename 
-#	# (e.g. "path/libname.so" becomes "-Lpath -lname" if gcc is used).
-#	# This was the default behavior before cmake 2.6.
-#	CMAKE_POLICY(SET CMP0003 OLD)
-#	
-#ELSE (CMAKE_MAJOR_VERSION GREATER 2)
-#	IF (CMAKE_MAJOR_VERSION EQUAL 2 AND CMAKE_MINOR_VERSION GREATER 4)
-#		CMAKE_POLICY(SET CMP0005 OLD)
-#		CMAKE_POLICY(SET CMP0003 OLD)
-#	ENDIF (CMAKE_MAJOR_VERSION EQUAL 2 AND CMAKE_MINOR_VERSION GREATER 4)
-#ENDIF (CMAKE_MAJOR_VERSION GREATER 2)
-
 PROJECT(makeallsources)
-
 
 IF(CMAKE_COMPILER_IS_GNUCXX)
         ADD_DEFINITIONS(-Wall -Wno-write-strings)
@@ -27,11 +10,20 @@ IF(CMAKE_COMPILER_IS_GNUCC)
         ADD_DEFINITIONS(-Wall -Wno-write-strings)
 ENDIF(CMAKE_COMPILER_IS_GNUCC)
 
-# if you ever need to profile the library code, uncomment this
-#ADD_DEFINITIONS(
-#        -pg
-#)
-#SET (CMAKE_EXE_LINKER_FLAGS ${CMAKE_EXE_LINKER_FLAGS} "-pg")
+## Code profiling
+OPTION(
+  ENABLE_PROFILING
+  "Enable profiling symbols generation by the C++ compiler. This option DOES NOT enable any NetBee-specific profiling code and WILL impact on performance."
+  OFF
+)
+
+IF(ENABLE_PROFILING)
+  ADD_DEFINITIONS(
+    -pg
+  )
+  SET (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
+ENDIF(ENABLE_PROFILING)
+#################
 
 ADD_SUBDIRECTORY(nbee)
 ADD_SUBDIRECTORY(nbnetvm)

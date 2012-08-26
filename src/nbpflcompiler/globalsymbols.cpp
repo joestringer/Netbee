@@ -130,9 +130,21 @@ void GlobalSymbols::StoreRegExEntry(SymbolRegEx *regEx)
 	m_RegExEntries.push_back(regEx);
 }
 
+void GlobalSymbols::StoreStringMatchingEntry(SymbolRegEx *regEx)
+{
+	m_StringMatchingEntries.push_back(regEx);
+}
+
 int GlobalSymbols::GetRegExEntriesCount()
 {
 	int toReturn = m_RegExEntries.size();
+
+	return toReturn;
+}
+
+int GlobalSymbols::GetStringMatchingEntriesCount()
+{
+	int toReturn = m_StringMatchingEntries.size();
 
 	return toReturn;
 }
@@ -314,9 +326,14 @@ bool GlobalSymbols::CompareSymbolFields(const SymbolField *sym1, const SymbolFie
 			else
 				return true;
 		}break;
-
+	
+	case PDL_FIELD_ALLFIELDS: //[icerrato]
+		{
+			//it can exist only a SymbolField of this time in the GlobalSymbolTable
+			return true;
+		}break;
 	default:
-		nbASSERT(false, "Symbols to compare should be fixed, bitfield, padding, varlen, pattern or eatall");
+		nbASSERT(false, "Symbols to compare should be fixed, bitfield, padding, varlen, pattern, eatall or allfields");
 		break;
 	}
 

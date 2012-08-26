@@ -661,13 +661,11 @@ unsigned long NewSize;
 */
 int CPDMLReader::FormatFieldNodes(DOMNode *CurrentField, struct _nbPDMLProto *ParentProto, struct _nbPDMLField *ParentField)
 {
-bool IsFirstItem;
 struct _nbPDMLField *PreviousField;
 
 	while (	(CurrentField) && (CurrentField->getNodeType() != DOMNode::ELEMENT_NODE) )
 		CurrentField= CurrentField->getNextSibling();
 
-	IsFirstItem= true;
 	PreviousField= NULL;
 
 	while (CurrentField)
@@ -860,7 +858,7 @@ DOMNode *DumpValue;
 
 	\note This function has been declared as 'static' because it is called also from other contexts.
 */
-int CPDMLReader::AppendItemString(DOMNode *SourceNode, char *TagToLookFor, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize)
+int CPDMLReader::AppendItemString(DOMNode *SourceNode, const char *TagToLookFor, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize)
 {
 const XMLCh *TempPtr;
 XMLCh XMLTagToLookFor[NETPDL_MAX_STRING + 1];
@@ -909,7 +907,7 @@ XMLCh XMLTagToLookFor[NETPDL_MAX_STRING + 1];
 
 	\note This function has been declared as 'static' because it is called also from other contexts.
 */
-int CPDMLReader::AppendItemString(char *SourceString, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize)
+int CPDMLReader::AppendItemString(const char *SourceString, char **AppendAt, CAsciiBuffer *TmpBuffer, char *ErrBuf, int ErrBufSize)
 {
 	(*AppendAt)= TmpBuffer->Store(SourceString);
 
@@ -944,7 +942,7 @@ int CPDMLReader::AppendItemString(char *SourceString, char **AppendAt, CAsciiBuf
 
 	\note This function has been declared as 'static' because it is called also from other contexts.
 */
-int CPDMLReader::AppendItemLong(DOMNode *SourceNode, char *TagToLookFor, unsigned long *AppendAt, char *ErrBuf, int ErrBufSize)
+int CPDMLReader::AppendItemLong(DOMNode *SourceNode, const char *TagToLookFor, unsigned long *AppendAt, char *ErrBuf, int ErrBufSize)
 {
 const XMLCh *TempPtr;
 XMLCh XMLTagToLookFor[NETPDL_MAX_STRING + 1];
