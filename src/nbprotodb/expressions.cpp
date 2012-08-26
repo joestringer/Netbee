@@ -75,7 +75,7 @@ int StringLen;
 
 	protodb_lex_init(ExprString);
 
-    if (pdl_parse((void **) AllocatedExprTree) != 0)
+    if (pdl_parse((void *) AllocatedExprTree) != 0)
     {
 		protodb_lex_cleanup();
 		return nbFAILURE;
